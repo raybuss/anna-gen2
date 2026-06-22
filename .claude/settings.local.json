@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node smoke.mjs)",
+      "Bash(npx playwright *)"
+    ]
+  }
+}
