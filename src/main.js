@@ -6,7 +6,18 @@ import { VRMLoaderPlugin } from '@pixiv/three-vrm'
 const container = document.getElementById('viewer')
 
 const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x8fbcd4)
+
+const bgCanvas = document.createElement('canvas')
+bgCanvas.width = 2
+bgCanvas.height = 512
+const ctx = bgCanvas.getContext('2d')
+const grad = ctx.createLinearGradient(0, 0, 0, 512)
+grad.addColorStop(0, '#7ec8e3')
+grad.addColorStop(0.5, '#c9dfe8')
+grad.addColorStop(1, '#e8e0d8')
+ctx.fillStyle = grad
+ctx.fillRect(0, 0, 2, 512)
+scene.background = new THREE.CanvasTexture(bgCanvas)
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000)
 camera.position.set(0.0, 1.4, 2.0)
@@ -14,13 +25,31 @@ camera.position.set(0.0, 1.4, 2.0)
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(window.devicePixelRatio)
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
 container.appendChild(renderer.domElement)
 
-const hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0)
+const hemi = new THREE.HemisphereLight(0x9bd4e8, 0x806040, 0.6)
 scene.add(hemi)
-const dir = new THREE.DirectionalLight(0xffffff, 1.0)
-dir.position.set(0.5, 1, 0.5)
+const dir = new THREE.DirectionalLight(0xffffff, 1.2)
+dir.position.set(2, 4, 2)
+dir.castShadow = true
+dir.shadow.mapSize.set(1024, 1024)
+dir.shadow.camera.near = 0.5
+dir.shadow.camera.far = 10
+dir.shadow.camera.left = -2
+dir.shadow.camera.right = 2
+dir.shadow.camera.top = 3
+dir.shadow.camera.bottom = -1
 scene.add(dir)
+
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(3, 64),
+  new THREE.MeshStandardMaterial({ color: 0xd4cec4, roughness: 0.9 })
+)
+floor.rotation.x = -Math.PI / 2
+floor.receiveShadow = true
+scene.add(floor)
 
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.target.set(0, 1.2, 0)
@@ -110,6 +139,9 @@ function loadVRM(url) {
     if (currentVRM) scene.remove(currentVRM.scene)
     currentVRM = vrm
     vrm.scene.rotation.y = Math.PI
+    vrm.scene.traverse((obj) => {
+      if (obj.isMesh) obj.castShadow = true
+    })
     applyIdlePose(vrm)
     scene.add(vrm.scene)
     console.log('VRM loaded', vrm)
