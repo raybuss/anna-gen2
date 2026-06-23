@@ -190,7 +190,7 @@ function updateBlink(vrm, elapsed) {
   vrm.expressionManager.setValue('blink', value)
 }
 
-const defaultURL = '/models/sample.vrm'
+const defaultURL = '/models/AvatarSample_A.vrm'
 
 document.getElementById('url').value = defaultURL
 document.getElementById('load').addEventListener('click', () => {
