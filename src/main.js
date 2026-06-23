@@ -26,7 +26,10 @@ const controls = new OrbitControls(camera, renderer.domElement)
 controls.target.set(0, 1.2, 0)
 controls.update()
 
+const clock = new THREE.Clock()
 let currentVRM = null
+let nextBlinkTime = 0
+let blinkPhase = 0
 
 function loadVRM(url) {
   const loader = new GLTFLoader()
@@ -41,6 +44,7 @@ function loadVRM(url) {
     if (currentVRM) scene.remove(currentVRM.scene)
     currentVRM = vrm
     vrm.scene.rotation.y = Math.PI
+    applyIdlePose(vrm)
     scene.add(vrm.scene)
     console.log('VRM loaded', vrm)
   }, (progress) => {
@@ -48,6 +52,76 @@ function loadVRM(url) {
   }, (error) => {
     console.error('Failed to load model', error)
   })
+}
+
+const idlePose = {
+  leftUpperArm: { z: 1.2 },
+  rightUpperArm: { z: -1.2 },
+  leftLowerArm: { z: 0.15 },
+  rightLowerArm: { z: -0.15 },
+}
+
+function applyIdlePose(vrm) {
+  const humanoid = vrm.humanoid
+  for (const [name, rot] of Object.entries(idlePose)) {
+    const bone = humanoid.getNormalizedBoneNode(name)
+    if (bone && rot.z !== undefined) bone.rotation.z = rot.z
+  }
+  nextBlinkTime = clock.elapsedTime + 1 + Math.random() * 4
+  blinkPhase = 0
+  humanoid.update()
+}
+
+function updateIdleAnimation(vrm, elapsed, delta) {
+  const humanoid = vrm.humanoid
+  const spine = humanoid.getNormalizedBoneNode('spine')
+  if (spine) {
+    spine.rotation.x = Math.sin(elapsed * 1.2) * 0.008
+    spine.rotation.z = Math.sin(elapsed * 0.7) * 0.005
+  }
+
+  const chest = humanoid.getNormalizedBoneNode('chest')
+  if (chest) {
+    chest.rotation.x = Math.sin(elapsed * 1.2 + 0.5) * 0.006
+  }
+
+  const head = humanoid.getNormalizedBoneNode('head')
+  if (head) {
+    head.rotation.y = Math.sin(elapsed * 0.3) * 0.02
+    head.rotation.x = Math.sin(elapsed * 0.5) * 0.01
+  }
+
+  updateBlink(vrm, elapsed)
+
+  humanoid.update()
+  if (vrm.expressionManager) vrm.expressionManager.update()
+}
+
+const BLINK_DURATION = 0.15
+
+function updateBlink(vrm, elapsed) {
+  if (!vrm.expressionManager) return
+
+  if (blinkPhase === 0) {
+    if (elapsed >= nextBlinkTime) {
+      blinkPhase = 1
+    }
+    return
+  }
+
+  const t = elapsed - nextBlinkTime
+  let value = 0
+  if (t < BLINK_DURATION / 2) {
+    value = t / (BLINK_DURATION / 2)
+  } else if (t < BLINK_DURATION) {
+    value = 1 - (t - BLINK_DURATION / 2) / (BLINK_DURATION / 2)
+  } else {
+    value = 0
+    blinkPhase = 0
+    nextBlinkTime = elapsed + 2 + Math.random() * 5
+  }
+
+  vrm.expressionManager.setValue('blink', value)
 }
 
 const defaultURL = '/models/sample.vrm'
@@ -66,6 +140,9 @@ window.addEventListener('resize', () => {
 
 function animate() {
   requestAnimationFrame(animate)
+  const delta = clock.getDelta()
+  const elapsed = clock.elapsedTime
+  if (currentVRM) updateIdleAnimation(currentVRM, elapsed, delta)
   renderer.render(scene, camera)
 }
 animate()
