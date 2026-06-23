@@ -534,5 +534,186 @@ export function buildApartment() {
   // Bathroom box
   addBox(apt, [-6, 0, -2.8], { y: 0.2 }, makeClosedBox, 0.4, 0.35, 0.35)
 
+  // ============================
+  // DECOR — Wall Art, TV, Plants, Piano, Ceiling Lights
+  // ============================
+
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.4, metalness: 0.3 })
+
+  function makeFramedArt(w, h, artColor) {
+    const g = new THREE.Group()
+    const frameDepth = 0.03, border = 0.04
+    const f = new THREE.Mesh(new THREE.BoxGeometry(w + border * 2, h + border * 2, frameDepth), frameMat)
+    g.add(f)
+    const canvas = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+      new THREE.MeshStandardMaterial({ color: artColor, roughness: 0.8 }))
+    canvas.position.z = frameDepth / 2 + 0.001
+    g.add(canvas)
+    return g
+  }
+
+  // Living room — two prints on partition wall (Z=-5, living side faces +Z)
+  const art1 = makeFramedArt(0.7, 0.5, 0x2244aa)
+  art1.position.set(1.8, 1.8, -4.97); apt.add(art1)
+  const art2 = makeFramedArt(0.5, 0.7, 0x884422)
+  art2.position.set(3.0, 1.7, -4.97); apt.add(art2)
+
+  // Bedroom — print above headboard (back wall faces +Z)
+  const art3 = makeFramedArt(1.0, 0.6, 0x334455)
+  art3.position.set(-2, 2.2, -10.97); apt.add(art3)
+
+  // Kitchen — small piece on left wall (faces +X)
+  const art4 = makeFramedArt(0.5, 0.4, 0xaa6633)
+  art4.rotation.y = Math.PI / 2
+  art4.position.set(-9.97, 1.6, 0); apt.add(art4)
+
+  // --- TV (flatscreen on stand, living room right side) ---
+  const tvStand = new THREE.Mesh(new RoundedBoxGeometry(1.2, 0.45, 0.4, 3, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.5, metalness: 0.1 }))
+  tvStand.position.set(2.5, 0.225, -2); tvStand.castShadow = true
+  apt.add(tvStand)
+
+  const tvScreen = new THREE.Mesh(new RoundedBoxGeometry(1.1, 0.65, 0.04, 3, 0.01),
+    new THREE.MeshStandardMaterial({ color: 0x050510, roughness: 0.1, metalness: 0.3 }))
+  tvScreen.position.set(2.5, 0.78, -2); tvScreen.castShadow = true
+  apt.add(tvScreen)
+  // Thin bezel glow
+  const tvGlow = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.6),
+    new THREE.MeshBasicMaterial({ color: 0x111122 }))
+  tvGlow.position.set(2.5, 0.78, -1.975)
+  apt.add(tvGlow)
+
+  // --- Plants ---
+  const potMat = new THREE.MeshStandardMaterial({ color: 0x6b4226, roughness: 0.8 })
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0x2d5a27, roughness: 0.8 })
+  const leafLight = new THREE.MeshStandardMaterial({ color: 0x3a7a30, roughness: 0.8 })
+
+  function makePlant(potR, potH, leafR, leafH, leafCount) {
+    const g = new THREE.Group()
+    const pot = new THREE.Mesh(new THREE.CylinderGeometry(potR, potR * 0.8, potH, 24), potMat)
+    pot.position.y = potH / 2; pot.castShadow = true
+    g.add(pot)
+    const soil = new THREE.Mesh(new THREE.CylinderGeometry(potR - 0.01, potR - 0.01, 0.02, 24),
+      new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1.0 }))
+    soil.position.y = potH; g.add(soil)
+    for (let i = 0; i < leafCount; i++) {
+      const angle = (i / leafCount) * Math.PI * 2 + Math.random() * 0.5
+      const lR = leafR * (0.7 + Math.random() * 0.3)
+      const lH = leafH * (0.8 + Math.random() * 0.4)
+      const leaf = new THREE.Mesh(
+        new THREE.SphereGeometry(lR, 8, 6),
+        i % 2 === 0 ? leafMat : leafLight
+      )
+      leaf.scale.y = lH / lR
+      leaf.position.set(
+        Math.cos(angle) * potR * 0.5,
+        potH + lH * 0.6,
+        Math.sin(angle) * potR * 0.5
+      )
+      g.add(leaf)
+    }
+    return g
+  }
+
+  // Large plant — living room corner near windows
+  const plant1 = makePlant(0.18, 0.35, 0.2, 0.4, 5)
+  plant1.position.set(3.3, 0, 1.5); apt.add(plant1)
+
+  // Medium plant — kitchen counter
+  const plant2 = makePlant(0.08, 0.12, 0.1, 0.15, 4)
+  plant2.position.set(-9.5, 0.92, 1.5); apt.add(plant2)
+
+  // Small plant — bedroom dresser
+  const plant3 = makePlant(0.06, 0.1, 0.08, 0.12, 3)
+  plant3.position.set(2.5, 0.87, -10.2); apt.add(plant3)
+
+  // Tall plant — near bedroom archway
+  const plant4 = makePlant(0.2, 0.4, 0.25, 0.5, 6)
+  plant4.position.set(-3.0, 0, -5.5); apt.add(plant4)
+
+  // Small plant — bathroom vanity
+  const plant5 = makePlant(0.05, 0.08, 0.06, 0.1, 3)
+  plant5.position.set(-9.2, 0.92, -3.2); apt.add(plant5)
+
+  // --- Upright Piano (living room, against partition) ---
+  const piano = new THREE.Group()
+  const pianoWood = new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.4, metalness: 0.05 })
+
+  // Body
+  const pianoBody = new THREE.Mesh(new RoundedBoxGeometry(1.4, 1.1, 0.55, 3, 0.02), pianoWood)
+  pianoBody.position.set(0, 0.55, 0); pianoBody.castShadow = true
+  piano.add(pianoBody)
+
+  // Top lid
+  const pianoLid = new THREE.Mesh(new RoundedBoxGeometry(1.44, 0.03, 0.58, 3, 0.01), pianoWood)
+  pianoLid.position.set(0, 1.12, 0)
+  piano.add(pianoLid)
+
+  // Keyboard shelf
+  const keyShelf = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.02, 0.15),
+    new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.6 }))
+  keyShelf.position.set(0, 0.72, 0.35)
+  piano.add(keyShelf)
+
+  // Keys (white strip + black accents)
+  const whiteKeys = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.015, 0.12),
+    new THREE.MeshStandardMaterial({ color: 0xf5f0e8, roughness: 0.3 }))
+  whiteKeys.position.set(0, 0.735, 0.35)
+  piano.add(whiteKeys)
+
+  for (let k = 0; k < 8; k++) {
+    if ([1, 2, 4, 5, 6].includes(k % 7) || k === 7) {
+      const bk = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.02, 0.07),
+        new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3 }))
+      bk.position.set(-0.45 + k * 0.12, 0.745, 0.32)
+      piano.add(bk)
+    }
+  }
+
+  // Pedals
+  for (const px of [-0.12, 0, 0.12]) {
+    const pedal = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.08), darkMetal)
+    pedal.position.set(px, 0.01, 0.35)
+    piano.add(pedal)
+  }
+
+  // Bench
+  const bench = new THREE.Mesh(new RoundedBoxGeometry(0.9, 0.05, 0.3, 3, 0.01), pianoWood)
+  bench.position.set(0, 0.45, 0.7)
+  piano.add(bench)
+  for (const [bx, bz] of [[-0.35, 0.55], [0.35, 0.55], [-0.35, 0.85], [0.35, 0.85]]) {
+    const bLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.43, 12), pianoWood)
+    bLeg.position.set(bx, 0.22, bz)
+    piano.add(bLeg)
+  }
+
+  piano.position.set(-1.5, 0, -4.85)
+  piano.rotation.y = Math.PI
+  apt.add(piano)
+
+  // --- Ceiling Lights ---
+
+  function makeRecessedLight(x, z, color, intensity, range) {
+    const fixture = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.03, 24),
+      new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.5 }))
+    fixture.position.set(x, H - 0.015, z)
+    fixture.rotation.x = Math.PI
+    apt.add(fixture)
+    const light = new THREE.PointLight(color || 0xffeedd, intensity || 0.6, range || 5, 1.5)
+    light.position.set(x, H - 0.05, z)
+    apt.add(light)
+  }
+
+  // Living room — 3 recessed spots
+  makeRecessedLight(0, -1, 0xffeedd, 0.5, 5)
+  makeRecessedLight(-2, -3, 0xffeedd, 0.4, 5)
+  makeRecessedLight(2, -3, 0xffeedd, 0.4, 5)
+
+  // Hallway/transition area
+  makeRecessedLight(-0.5, -5, 0xffeedd, 0.3, 4)
+
+  // Kitchen — add a second spot
+  makeRecessedLight(-5.5, 1, 0xffeedd, 0.4, 4)
+
   return { group: apt }
 }
