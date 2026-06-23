@@ -44,8 +44,9 @@ let mouthValue = 0
 function speak(text) {
   audioCtx.resume()
   window.speechSynthesis.cancel()
+  isSpeaking = true
+  useAnalyser = false
   const utterance = new SpeechSynthesisUtterance(text)
-  utterance.onstart = () => { isSpeaking = true; useAnalyser = false }
   utterance.onend = () => { isSpeaking = false }
   utterance.onerror = () => { isSpeaking = false }
   window.speechSynthesis.speak(utterance)
