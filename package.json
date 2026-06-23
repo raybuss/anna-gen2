@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@pixiv/three-vrm": "^1.0.0",
-    "three": "^0.154.0"
+    "three": "^0.151.3"
   },
   "devDependencies": {
     "vite": "^4.0.0"
