@@ -10,8 +10,14 @@
     <div id="app">
       <div id="viewer"></div>
       <div id="ui">
-        <input id="url" placeholder="/models/sample.vrm or remote URL" />
-        <button id="load">Load VRM</button>
+        <div class="ui-row">
+          <input id="url" placeholder="/models/sample.vrm or remote URL" />
+          <button id="load">Load VRM</button>
+        </div>
+        <div class="ui-row">
+          <input id="speech-text" placeholder="Type something to say…" />
+          <button id="speak">Speak</button>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.js"></script>

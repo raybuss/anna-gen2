@@ -31,6 +31,71 @@ let currentVRM = null
 let nextBlinkTime = 0
 let blinkPhase = 0
 
+// --- Speech & Lip Sync ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+const analyser = audioCtx.createAnalyser()
+analyser.fftSize = 256
+const frequencyData = new Uint8Array(analyser.frequencyBinCount)
+
+let isSpeaking = false
+let useAnalyser = false
+let mouthValue = 0
+
+function speak(text) {
+  audioCtx.resume()
+  window.speechSynthesis.cancel()
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.onstart = () => { isSpeaking = true; useAnalyser = false }
+  utterance.onend = () => { isSpeaking = false }
+  utterance.onerror = () => { isSpeaking = false }
+  window.speechSynthesis.speak(utterance)
+}
+
+/* To swap to ElevenLabs, replace speak() above with:
+async function speak(text) {
+  audioCtx.resume()
+  const res = await fetch('/api/speech', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voiceId: 'default' }),
+  })
+  const audio = new Audio(URL.createObjectURL(await res.blob()))
+  const source = audioCtx.createMediaElementSource(audio)
+  source.connect(analyser)
+  analyser.connect(audioCtx.destination)
+  useAnalyser = true
+  audio.onplay = () => { isSpeaking = true }
+  audio.onended = () => { isSpeaking = false }
+  audio.play()
+}
+*/
+
+function getSpeechAmplitude(elapsed) {
+  if (!isSpeaking) return 0
+
+  if (useAnalyser) {
+    analyser.getByteFrequencyData(frequencyData)
+    let sum = 0
+    for (let i = 0; i < 8; i++) sum += frequencyData[i]
+    return sum / 8 / 255
+  }
+
+  // Simulated speech-like amplitude for SpeechSynthesis stub
+  const t = elapsed
+  const wave = Math.sin(t * 14.5) * 0.35
+    + Math.sin(t * 22.7) * 0.25
+    + Math.sin(t * 8.3) * 0.4
+  return Math.max(0, Math.min(1, wave + 0.35))
+}
+
+function updateLipSync(vrm, elapsed, delta) {
+  const target = getSpeechAmplitude(elapsed)
+  const smoothing = isSpeaking ? 20 : 8
+  mouthValue += (target - mouthValue) * Math.min(1, delta * smoothing)
+  if (Math.abs(mouthValue) < 0.001) mouthValue = 0
+  if (vrm.expressionManager) vrm.expressionManager.setValue('aa', mouthValue)
+}
+
 function loadVRM(url) {
   const loader = new GLTFLoader()
   loader.crossOrigin = 'anonymous'
@@ -92,6 +157,7 @@ function updateIdleAnimation(vrm, elapsed, delta) {
   }
 
   updateBlink(vrm, elapsed)
+  updateLipSync(vrm, elapsed, delta)
 
   humanoid.update()
   if (vrm.expressionManager) vrm.expressionManager.update()
@@ -130,6 +196,11 @@ document.getElementById('url').value = defaultURL
 document.getElementById('load').addEventListener('click', () => {
   const url = document.getElementById('url').value.trim() || defaultURL
   loadVRM(url)
+})
+
+document.getElementById('speak').addEventListener('click', () => {
+  const text = document.getElementById('speech-text').value.trim()
+  if (text && currentVRM) speak(text)
 })
 
 window.addEventListener('resize', () => {
