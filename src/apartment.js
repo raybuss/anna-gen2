@@ -167,7 +167,27 @@ export function buildApartment() {
 
   // Outer walls
   const back = wall(14, H); back.position.set(-3, H / 2, -11); apt.add(back)
-  const front = wall(14, H); front.rotation.y = Math.PI; front.position.set(-3, H / 2, 3); apt.add(front)
+  // Front wall with apartment door (door at X=-1 to X=+0.2, facing avatar)
+  const doorW = 1.0, doorH = 2.3, doorX = -0.4
+  const frontLeftW = doorX - (-10) - doorW / 2
+  const frontRightW = 4 - (doorX + doorW / 2)
+  const fl = wall(frontLeftW, H); fl.rotation.y = Math.PI
+  fl.position.set(-10 + frontLeftW / 2, H / 2, 3); apt.add(fl)
+  const fr = wall(frontRightW, H); fr.rotation.y = Math.PI
+  fr.position.set(4 - frontRightW / 2, H / 2, 3); apt.add(fr)
+  const frontHeader = wall(doorW, H - doorH); frontHeader.rotation.y = Math.PI
+  frontHeader.position.set(doorX, doorH + (H - doorH) / 2, 3); apt.add(frontHeader)
+  // Door panel
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 0.6 })
+  const doorPanel = new THREE.Mesh(new RoundedBoxGeometry(doorW - 0.05, doorH - 0.05, 0.05, 3, 0.01), doorMat)
+  doorPanel.position.set(doorX, doorH / 2, 2.97)
+  apt.add(doorPanel)
+  // Door handle
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0xc0b080, metalness: 0.8, roughness: 0.2 })
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.1, 12), handleMat)
+  handle.rotation.x = Math.PI / 2
+  handle.position.set(doorX + 0.35, 1.05, 2.94)
+  apt.add(handle)
   const left = wall(14, H); left.rotation.y = Math.PI / 2; left.position.set(-10, H / 2, -4); apt.add(left)
 
   // Right wall — floor-to-ceiling windows along full depth
@@ -213,40 +233,40 @@ export function buildApartment() {
   counterSurface.position.set(-4, counterH + 0.02, 0.25)
   apt.add(counterSurface)
 
-  // Kitchen/Bathroom wall (Z=-2, X:-10 to -5)
-  const kbWall = wall(5, H)
-  kbWall.rotation.y = Math.PI
+  // Kitchen/Bathroom wall (Z=-2, X:-10 to -5) — double-sided
+  const intWallMat = new THREE.MeshStandardMaterial({ color: 0xe8e0d8, roughness: 0.95, side: THREE.DoubleSide })
+  const kbWall = new THREE.Mesh(new THREE.PlaneGeometry(5, H), intWallMat)
   kbWall.position.set(-7.5, H / 2, -2)
+  kbWall.receiveShadow = true
   apt.add(kbWall)
 
-  // Bathroom right wall (X=-5, Z:-5 to -2) with door opening
+  // Bathroom right wall (X=-5, Z:-5 to -2) with door opening — double-sided
   const bathDoorH = 2.2
-  const bathWallLower = wall(3, H)
-  // Full wall but with gap: wall from Z=-5 to Z=-2.8 (2.2 wide), door from Z=-2.8 to Z=-2 (0.8 wide)
-  const bathRightSolid = wall(2.2, H)
+  const bathRightSolid = new THREE.Mesh(new THREE.PlaneGeometry(2.2, H), intWallMat)
   bathRightSolid.rotation.y = -Math.PI / 2
   bathRightSolid.position.set(-5, H / 2, -3.9)
+  bathRightSolid.receiveShadow = true
   apt.add(bathRightSolid)
-  // Door header above opening
-  const bathHeader = wall(0.8, H - bathDoorH)
+  const bathHeader = new THREE.Mesh(new THREE.PlaneGeometry(0.8, H - bathDoorH), intWallMat)
   bathHeader.rotation.y = -Math.PI / 2
   bathHeader.position.set(-5, bathDoorH + (H - bathDoorH) / 2, -2.4)
   apt.add(bathHeader)
 
-  // Living/Bedroom partition (Z=-5) with archway
+  // Living/Bedroom partition (Z=-5) with archway — double-sided so visible from both rooms
+  const partitionMat = new THREE.MeshStandardMaterial({ color: 0xe8e0d8, roughness: 0.95, side: THREE.DoubleSide })
   // X:-10 to -2: solid
-  const partLeft = wall(8, H)
-  partLeft.rotation.y = Math.PI
+  const partLeft = new THREE.Mesh(new THREE.PlaneGeometry(8, H), partitionMat)
   partLeft.position.set(-6, H / 2, -5)
+  partLeft.receiveShadow = true
   apt.add(partLeft)
   // X:-2 to +1: archway (3m opening) — just a header beam
   const archHeader = new THREE.Mesh(new THREE.BoxGeometry(3, 0.15, 0.15), wallMat)
   archHeader.position.set(-0.5, H - 0.075, -5)
   apt.add(archHeader)
   // X:+1 to +4: solid
-  const partRight = wall(3, H)
-  partRight.rotation.y = Math.PI
+  const partRight = new THREE.Mesh(new THREE.PlaneGeometry(3, H), partitionMat)
   partRight.position.set(2.5, H / 2, -5)
+  partRight.receiveShadow = true
   apt.add(partRight)
 
   // Bathroom floor tile overlay
@@ -552,20 +572,20 @@ export function buildApartment() {
     return g
   }
 
-  // Living room — two prints on partition wall (Z=-5, living side faces +Z)
+  // Living room — two prints on partition wall (Z=-5, faces +Z)
   const art1 = makeFramedArt(0.7, 0.5, 0x2244aa)
-  art1.position.set(1.8, 1.8, -4.97); apt.add(art1)
+  art1.position.set(1.8, 1.8, -4.985); apt.add(art1)
   const art2 = makeFramedArt(0.5, 0.7, 0x884422)
-  art2.position.set(3.0, 1.7, -4.97); apt.add(art2)
+  art2.position.set(3.0, 1.7, -4.985); apt.add(art2)
 
-  // Bedroom — print above headboard (back wall faces +Z)
+  // Bedroom — print above headboard (back wall Z=-11, faces +Z)
   const art3 = makeFramedArt(1.0, 0.6, 0x334455)
-  art3.position.set(-2, 2.2, -10.97); apt.add(art3)
+  art3.position.set(-2, 2.2, -10.985); apt.add(art3)
 
-  // Kitchen — small piece on left wall (faces +X)
+  // Kitchen — small piece on left wall (X=-10, faces +X)
   const art4 = makeFramedArt(0.5, 0.4, 0xaa6633)
   art4.rotation.y = Math.PI / 2
-  art4.position.set(-9.97, 1.6, 0); apt.add(art4)
+  art4.position.set(-9.985, 1.6, 0); apt.add(art4)
 
   // --- TV (flatscreen on stand, living room right side) ---
   const tvStand = new THREE.Mesh(new RoundedBoxGeometry(1.2, 0.45, 0.4, 3, 0.02),
