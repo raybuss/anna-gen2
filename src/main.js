@@ -70,35 +70,58 @@ let isSpeaking = false
 let useAnalyser = false
 let mouthValue = 0
 
-function speak(text) {
-  audioCtx.resume()
-  window.speechSynthesis.cancel()
-  isSpeaking = true
-  useAnalyser = false
-  const utterance = new SpeechSynthesisUtterance(text)
-  utterance.onend = () => { isSpeaking = false }
-  utterance.onerror = () => { isSpeaking = false }
-  window.speechSynthesis.speak(utterance)
-}
-
-/* To swap to ElevenLabs, replace speak() above with:
 async function speak(text) {
   audioCtx.resume()
-  const res = await fetch('/api/speech', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voiceId: 'default' }),
-  })
-  const audio = new Audio(URL.createObjectURL(await res.blob()))
-  const source = audioCtx.createMediaElementSource(audio)
-  source.connect(analyser)
-  analyser.connect(audioCtx.destination)
-  useAnalyser = true
-  audio.onplay = () => { isSpeaking = true }
-  audio.onended = () => { isSpeaking = false }
-  audio.play()
+  if (!authToken) {
+    // Fallback to browser TTS when not logged in
+    window.speechSynthesis.cancel()
+    isSpeaking = true
+    useAnalyser = false
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.onend = () => { isSpeaking = false }
+    utterance.onerror = () => { isSpeaking = false }
+    window.speechSynthesis.speak(utterance)
+    return
+  }
+  try {
+    const res = await fetch(`${API_BASE}/api/speech`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ text }),
+    })
+    if (!res.ok) {
+      console.warn(`Speech API error ${res.status}, falling back to browser TTS`)
+      window.speechSynthesis.cancel()
+      isSpeaking = true
+      useAnalyser = false
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.onend = () => { isSpeaking = false }
+      utterance.onerror = () => { isSpeaking = false }
+      window.speechSynthesis.speak(utterance)
+      return
+    }
+    const audio = new Audio(URL.createObjectURL(await res.blob()))
+    const source = audioCtx.createMediaElementSource(audio)
+    source.connect(analyser)
+    analyser.connect(audioCtx.destination)
+    useAnalyser = true
+    audio.onplay = () => { isSpeaking = true }
+    audio.onended = () => { isSpeaking = false }
+    audio.play()
+  } catch (e) {
+    console.warn('Speech API failed, falling back to browser TTS:', e.message)
+    window.speechSynthesis.cancel()
+    isSpeaking = true
+    useAnalyser = false
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.onend = () => { isSpeaking = false }
+    utterance.onerror = () => { isSpeaking = false }
+    window.speechSynthesis.speak(utterance)
+  }
 }
-*/
 
 function getSpeechAmplitude(elapsed) {
   if (!isSpeaking) return 0
@@ -364,6 +387,151 @@ for (const mood of Object.keys(moodTable)) {
   btn.addEventListener('click', () => setMood(mood))
   moodContainer.appendChild(btn)
 }
+
+// --- Chat System ---
+const API_BASE = '' // proxied via vite.config.js in dev; set to 'https://anna.bytor.co' in production
+let authToken = null
+const chatMessages = []
+
+const SYSTEM_PROMPT = `You are Anna, a young woman who just moved into a high-rise city apartment. You're getting settled in. You have a dry wit and warm personality underneath a slightly guarded exterior.
+
+Respond with a JSON object containing:
+- "text": your spoken reply (1-3 sentences, conversational)
+- "mood": one of: irritated, flustered, indifferent, reluctant, softening, annoyed, smug, warm
+- "affection_delta": a number from -2 to +2 indicating how this interaction changed your feelings
+
+Example response:
+{"text": "Oh, you're here already? I haven't even finished unpacking.", "mood": "reluctant", "affection_delta": 0}
+
+Always respond with valid JSON only, no markdown or extra text.`
+
+const chatLog = document.getElementById('chat-log')
+const chatInputRow = document.getElementById('chat-input-row')
+const chatInput = document.getElementById('chat-input')
+const loginStatus = document.getElementById('login-status')
+
+function appendChatMsg(sender, text, mood) {
+  const div = document.createElement('div')
+  div.className = `chat-msg ${sender === 'You' ? 'user' : 'anna'}`
+  const moodTag = mood ? `<span class="mood-tag">[${mood}]</span>` : ''
+  div.innerHTML = `<span class="sender">${sender}:</span> ${text}${moodTag}`
+  chatLog.appendChild(div)
+  chatLog.scrollTop = chatLog.scrollHeight
+}
+
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const user = document.getElementById('login-user').value.trim()
+  const pass = document.getElementById('login-pass').value
+  if (!user || !pass) return
+  loginStatus.textContent = 'Logging in…'
+  try {
+    const res = await fetch(`${API_BASE}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass }),
+    })
+    if (!res.ok) {
+      const err = await res.text()
+      loginStatus.textContent = `Login failed: ${res.status}`
+      console.warn('Login failed:', err)
+      return
+    }
+    const data = await res.json()
+    authToken = data.token
+    loginStatus.textContent = `Logged in as ${user}`
+    document.getElementById('login-form').style.display = 'none'
+    chatInputRow.style.display = 'flex'
+    appendChatMsg('System', 'Connected. Say hi to Anna.')
+  } catch (e) {
+    loginStatus.textContent = `Error: ${e.message}`
+    if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+      console.error('CORS or network error — the anna-web backend may need CORS headers for this origin')
+    }
+  }
+})
+
+async function sendChat() {
+  const text = chatInput.value.trim()
+  if (!text || !authToken) return
+  chatInput.value = ''
+  chatInput.disabled = true
+
+  appendChatMsg('You', text)
+  chatMessages.push({ role: 'user', content: text })
+
+  try {
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 350,
+        system: SYSTEM_PROMPT,
+        messages: chatMessages,
+      }),
+    })
+
+    if (!res.ok) {
+      const err = await res.text()
+      appendChatMsg('System', `Error ${res.status}: ${err}`)
+      if (res.status === 401) {
+        loginStatus.textContent = 'Session expired'
+        document.getElementById('login-form').style.display = 'flex'
+        chatInputRow.style.display = 'none'
+        authToken = null
+      }
+      chatInput.disabled = false
+      return
+    }
+
+    const data = await res.json()
+    const rawContent = typeof data.content === 'string'
+      ? data.content
+      : Array.isArray(data.content)
+        ? data.content.map(b => b.text || '').join('')
+        : JSON.stringify(data)
+
+    let replyText = rawContent
+    let mood = null
+    let affectionDelta = 0
+
+    try {
+      const parsed = JSON.parse(rawContent)
+      replyText = parsed.text || rawContent
+      mood = parsed.mood || null
+      affectionDelta = parsed.affection_delta || 0
+    } catch {
+      // Response wasn't JSON — use raw text
+    }
+
+    chatMessages.push({ role: 'assistant', content: rawContent })
+    appendChatMsg('Anna', replyText, mood)
+
+    if (mood && moodTable[mood]) {
+      setMood(mood)
+    } else if (mood) {
+      console.warn(`Unknown mood from API: "${mood}"`)
+    }
+
+    if (replyText && currentVRM) speak(replyText)
+
+  } catch (e) {
+    appendChatMsg('System', `Error: ${e.message}`)
+    if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+      console.error('CORS or network error on /api/chat — anna-web backend may need CORS headers for this origin')
+    }
+  }
+  chatInput.disabled = false
+  chatInput.focus()
+}
+
+document.getElementById('chat-send').addEventListener('click', sendChat)
+chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendChat()
+})
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight

@@ -5,3 +5,16 @@ html,body,#app,#viewer{height:100%;margin:0}
 .ui-row{margin-bottom:4px}
 .ui-row:last-child{margin-bottom:0}
 .mood-btn{font-size:11px;padding:2px 6px;margin:1px;cursor:pointer}
+#chat-panel{position:absolute;right:12px;top:12px;bottom:12px;width:320px;z-index:10;background:rgba(20,20,30,0.92);border-radius:6px;display:flex;flex-direction:column;padding:8px;color:#e0e0e0;font-family:sans-serif;font-size:13px}
+#login-form{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
+#login-form input{flex:1;min-width:80px;padding:4px;font-size:12px;border:1px solid #555;border-radius:3px;background:#222;color:#eee}
+#login-btn,#chat-send{padding:4px 10px;font-size:12px;cursor:pointer;border:none;border-radius:3px;background:#4466aa;color:#fff}
+#login-status{font-size:11px;width:100%;display:block;margin-top:2px}
+#chat-log{flex:1;overflow-y:auto;margin:4px 0;padding:4px;font-size:12px;line-height:1.5}
+.chat-msg{margin-bottom:6px}
+.chat-msg.user{color:#88aadd}
+.chat-msg.anna{color:#ddcc88}
+.chat-msg .sender{font-weight:bold}
+.chat-msg .mood-tag{font-size:10px;color:#888;margin-left:4px}
+#chat-input-row{display:flex;gap:4px}
+#chat-input{flex:1;padding:4px;font-size:12px;border:1px solid #555;border-radius:3px;background:#222;color:#eee}

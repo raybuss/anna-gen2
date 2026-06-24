@@ -20,6 +20,19 @@
         </div>
         <div class="ui-row" id="mood-buttons"></div>
       </div>
+      <div id="chat-panel">
+        <div id="login-form">
+          <input id="login-user" placeholder="Username" autocomplete="username" />
+          <input id="login-pass" type="password" placeholder="Password" autocomplete="current-password" />
+          <button id="login-btn">Login</button>
+          <span id="login-status"></span>
+        </div>
+        <div id="chat-log"></div>
+        <div id="chat-input-row" style="display:none">
+          <input id="chat-input" placeholder="Say something to Anna…" />
+          <button id="chat-send">Send</button>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/main.js"></script>
   </body>
