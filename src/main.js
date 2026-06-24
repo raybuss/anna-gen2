@@ -368,6 +368,12 @@ function updateBlink(vrm, elapsed) {
 
 const defaultURL = '/models/AvatarSample_A.vrm'
 
+// Dev tools toggle
+const devPanel = document.getElementById('dev-panel')
+document.getElementById('dev-toggle').addEventListener('click', () => {
+  devPanel.style.display = devPanel.style.display === 'none' ? 'block' : 'none'
+})
+
 document.getElementById('url').value = defaultURL
 document.getElementById('load').addEventListener('click', () => {
   const url = document.getElementById('url').value.trim() || defaultURL

@@ -1,20 +1,30 @@
 html,body,#app,#viewer{height:100%;margin:0}
 #viewer{width:100%;height:100vh;display:block}
-#ui{position:absolute;left:12px;top:12px;z-index:10;background:rgba(255,255,255,0.9);padding:8px;border-radius:6px}
-#url,#speech-text{width:320px}
+
+/* Dev tools — collapsed by default */
+#dev-tools{position:absolute;left:12px;top:12px;z-index:10}
+#dev-toggle{padding:4px 8px;font-size:11px;cursor:pointer;border:none;border-radius:4px;background:rgba(255,255,255,0.3);color:#ccc}
+#dev-toggle:hover{background:rgba(255,255,255,0.5);color:#333}
+#dev-panel{background:rgba(255,255,255,0.9);padding:8px;border-radius:6px;margin-top:4px;color:#333}
+#url,#speech-text{width:280px;padding:3px;font-size:12px}
 .ui-row{margin-bottom:4px}
 .ui-row:last-child{margin-bottom:0}
-.mood-btn{font-size:11px;padding:2px 6px;margin:1px;cursor:pointer}
-#chat-panel{position:absolute;right:12px;top:12px;bottom:12px;width:320px;z-index:10;background:rgba(20,20,30,0.92);border-radius:6px;display:flex;flex-direction:column;padding:8px;color:#e0e0e0;font-family:sans-serif;font-size:13px}
+.mood-btn{font-size:10px;padding:2px 5px;margin:1px;cursor:pointer}
+
+/* Chat panel */
+#chat-panel{position:absolute;right:12px;top:12px;bottom:12px;width:320px;z-index:10;background:rgba(15,15,22,0.94);border-radius:8px;display:flex;flex-direction:column;padding:10px;color:#e0e0e0;font-family:sans-serif;font-size:13px;border:1px solid rgba(255,255,255,0.08)}
 #login-form{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px}
-#login-form input{flex:1;min-width:80px;padding:4px;font-size:12px;border:1px solid #555;border-radius:3px;background:#222;color:#eee}
-#login-btn,#chat-send{padding:4px 10px;font-size:12px;cursor:pointer;border:none;border-radius:3px;background:#4466aa;color:#fff}
-#login-status{font-size:11px;width:100%;display:block;margin-top:2px}
-#chat-log{flex:1;overflow-y:auto;margin:4px 0;padding:4px;font-size:12px;line-height:1.5}
-.chat-msg{margin-bottom:6px}
+#login-form input{flex:1;min-width:80px;padding:6px 8px;font-size:12px;border:1px solid #444;border-radius:4px;background:#1a1a24;color:#eee}
+#login-btn,#chat-send{padding:6px 12px;font-size:12px;cursor:pointer;border:none;border-radius:4px;background:#4466aa;color:#fff;transition:background 0.15s}
+#login-btn:hover,#chat-send:hover{background:#5577cc}
+#login-status{font-size:11px;width:100%;display:block;margin-top:3px;color:#999}
+#chat-log{flex:1;overflow-y:auto;margin:6px 0;padding:4px;font-size:12px;line-height:1.6}
+.chat-msg{margin-bottom:8px}
 .chat-msg.user{color:#88aadd}
 .chat-msg.anna{color:#ddcc88}
+.chat-msg.system{color:#777;font-style:italic;font-size:11px}
 .chat-msg .sender{font-weight:bold}
-.chat-msg .mood-tag{font-size:10px;color:#888;margin-left:4px}
+.chat-msg .mood-tag{font-size:10px;color:#666;margin-left:4px}
 #chat-input-row{display:flex;gap:4px}
-#chat-input{flex:1;padding:4px;font-size:12px;border:1px solid #555;border-radius:3px;background:#222;color:#eee}
+#chat-input{flex:1;padding:6px 8px;font-size:12px;border:1px solid #444;border-radius:4px;background:#1a1a24;color:#eee}
+#chat-input:focus,#login-form input:focus{outline:none;border-color:#4466aa}
