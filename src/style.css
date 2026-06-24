@@ -4,3 +4,4 @@ html,body,#app,#viewer{height:100%;margin:0}
 #url,#speech-text{width:320px}
 .ui-row{margin-bottom:4px}
 .ui-row:last-child{margin-bottom:0}
+.mood-btn{font-size:11px;padding:2px 6px;margin:1px;cursor:pointer}

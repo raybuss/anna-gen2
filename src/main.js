@@ -126,6 +126,63 @@ function updateLipSync(vrm, elapsed, delta) {
   if (vrm.expressionManager) vrm.expressionManager.setValue('aa', mouthValue)
 }
 
+// --- Mood System ---
+const moodTable = {
+  irritated:   { angry: 0.3 },
+  flustered:   { Surprised: 0.4, happy: 0.15 },
+  indifferent: { neutral: 1.0, relaxed: 0.2 },
+  reluctant:   { angry: 0.15, relaxed: 0.1 },
+  softening:   { happy: 0.25, relaxed: 0.15 },
+  annoyed:     { angry: 0.5 },
+  smug:        { happy: 0.3, angry: 0.1 },
+  warm:        { happy: 0.6, relaxed: 0.2 },
+}
+
+const moodExpressions = new Set()
+for (const weights of Object.values(moodTable))
+  for (const name of Object.keys(weights)) moodExpressions.add(name)
+
+const moodCurrent = {}
+const moodTarget = {}
+for (const name of moodExpressions) { moodCurrent[name] = 0; moodTarget[name] = 0 }
+
+const validatedExpressions = new Set()
+const warnedExpressions = new Set()
+
+function setMood(moodName) {
+  for (const name of moodExpressions) moodTarget[name] = 0
+  const weights = moodTable[moodName]
+  if (!weights) { console.warn(`Unknown mood: ${moodName}`); return }
+  for (const [name, w] of Object.entries(weights)) moodTarget[name] = w
+  console.log(`Mood set: ${moodName}`)
+}
+
+function updateMood(vrm, delta) {
+  if (!vrm.expressionManager) return
+  const rate = Math.min(1, delta * 3.5)
+  for (const name of moodExpressions) {
+    moodCurrent[name] += (moodTarget[name] - moodCurrent[name]) * rate
+    if (Math.abs(moodCurrent[name]) < 0.001) moodCurrent[name] = 0
+
+    if (!validatedExpressions.has(name)) {
+      const expr = vrm.expressionManager.getExpression(name)
+      if (!expr) {
+        if (!warnedExpressions.has(name)) {
+          console.warn(`Expression "${name}" not found on this model — skipping`)
+          warnedExpressions.add(name)
+        }
+        validatedExpressions.add(name)
+        continue
+      }
+      validatedExpressions.add(name)
+    }
+    if (warnedExpressions.has(name)) continue
+    vrm.expressionManager.setValue(name, moodCurrent[name])
+  }
+}
+
+window.setMood = setMood
+
 function loadVRM(url) {
   const loader = new GLTFLoader()
   loader.crossOrigin = 'anonymous'
@@ -138,6 +195,7 @@ function loadVRM(url) {
     }
     if (currentVRM) scene.remove(currentVRM.scene)
     currentVRM = vrm
+    window.currentVRM = vrm
     vrm.scene.rotation.y = Math.PI
     vrm.scene.traverse((obj) => {
       if (obj.isMesh) obj.castShadow = true
@@ -191,6 +249,7 @@ function updateIdleAnimation(vrm, elapsed, delta) {
 
   updateBlink(vrm, elapsed)
   updateLipSync(vrm, elapsed, delta)
+  updateMood(vrm, delta)
 
   humanoid.update()
   if (vrm.expressionManager) vrm.expressionManager.update()
@@ -235,6 +294,15 @@ document.getElementById('speak').addEventListener('click', () => {
   const text = document.getElementById('speech-text').value.trim()
   if (text && currentVRM) speak(text)
 })
+
+const moodContainer = document.getElementById('mood-buttons')
+for (const mood of Object.keys(moodTable)) {
+  const btn = document.createElement('button')
+  btn.textContent = mood
+  btn.className = 'mood-btn'
+  btn.addEventListener('click', () => setMood(mood))
+  moodContainer.appendChild(btn)
+}
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
