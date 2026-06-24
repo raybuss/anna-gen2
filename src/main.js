@@ -154,7 +154,6 @@ function setMood(moodName) {
   const weights = moodTable[moodName]
   if (!weights) { console.warn(`Unknown mood: ${moodName}`); return }
   for (const [name, w] of Object.entries(weights)) moodTarget[name] = w
-  setMoodPose(moodName)
   console.log(`Mood set: ${moodName}`)
 }
 
@@ -211,12 +210,11 @@ function loadVRM(url) {
   })
 }
 
-// --- Body Pose System ---
-const defaultPose = {
-  leftUpperArm:  { x: 0, y: 0, z: 1.2 },
-  rightUpperArm: { x: 0, y: 0, z: -1.2 },
-  leftLowerArm:  { x: 0, y: 0, z: 0.15 },
-  rightLowerArm: { x: 0, y: 0, z: -0.15 },
+const idlePose = {
+  leftUpperArm: { z: 1.2 },
+  rightUpperArm: { z: -1.2 },
+  leftLowerArm: { z: 0.15 },
+  rightLowerArm: { z: -0.15 },
 }
 
 const fingerBones = [
@@ -227,96 +225,12 @@ const fingerBones = [
   'ThumbProximal', 'ThumbDistal',
 ]
 
-const moodPoses = {
-  irritated: {
-    leftUpperArm:  { x: 0.5, y: 0.3, z: 0.5 },
-    rightUpperArm: { x: 0.5, y: -0.3, z: -0.5 },
-    leftLowerArm:  { x: 0, y: 0, z: 1.3 },
-    rightLowerArm: { x: 0, y: 0, z: -1.3 },
-  },
-  flustered: {
-    leftUpperArm:  { x: 0.5, y: 0, z: 0.7 },
-    rightUpperArm: { x: 0.5, y: 0, z: -0.7 },
-    leftLowerArm:  { x: -0.3, y: 0, z: 1.0 },
-    rightLowerArm: { x: -0.3, y: 0, z: -1.0 },
-  },
-  indifferent: {
-    leftUpperArm:  { x: 0, y: 0, z: 1.25 },
-    rightUpperArm: { x: 0, y: 0, z: -1.25 },
-    leftLowerArm:  { x: 0, y: 0, z: 0.1 },
-    rightLowerArm: { x: 0, y: 0, z: -0.1 },
-  },
-  reluctant: {
-    leftUpperArm:  { x: 0.15, y: 0, z: 1.1 },
-    rightUpperArm: { x: 0.1, y: 0, z: -0.6 },
-    leftLowerArm:  { x: 0, y: 0, z: 0.2 },
-    rightLowerArm: { x: -0.2, y: 0, z: -0.8 },
-  },
-  softening: {
-    leftUpperArm:  { x: 0.1, y: 0, z: 1.15 },
-    rightUpperArm: { x: 0.1, y: 0, z: -1.15 },
-    leftLowerArm:  { x: 0, y: 0, z: 0.3 },
-    rightLowerArm: { x: 0, y: 0, z: -0.3 },
-  },
-  annoyed: {
-    leftUpperArm:  { x: 0.3, y: 0, z: 0.8 },
-    rightUpperArm: { x: 0.3, y: 0, z: -0.8 },
-    leftLowerArm:  { x: -0.2, y: -0.3, z: 0.6 },
-    rightLowerArm: { x: -0.2, y: 0.3, z: -0.6 },
-  },
-  smug: {
-    leftUpperArm:  { x: 0.3, y: 0, z: 0.8 },
-    rightUpperArm: { x: 0, y: 0, z: -1.2 },
-    leftLowerArm:  { x: -0.2, y: -0.3, z: 0.6 },
-    rightLowerArm: { x: 0, y: 0, z: -0.15 },
-  },
-  warm: {
-    leftUpperArm:  { x: 0.2, y: 0, z: 1.0 },
-    rightUpperArm: { x: 0.2, y: 0, z: -1.0 },
-    leftLowerArm:  { x: -0.1, y: 0, z: 0.4 },
-    rightLowerArm: { x: -0.1, y: 0, z: -0.4 },
-  },
-}
-
-const poseBones = Object.keys(defaultPose)
-const poseCurrent = {}
-const poseTarget = {}
-for (const name of poseBones) {
-  poseCurrent[name] = { ...defaultPose[name] }
-  poseTarget[name] = { ...defaultPose[name] }
-}
-
-function setMoodPose(moodName) {
-  const pose = moodPoses[moodName] || defaultPose
-  for (const name of poseBones) {
-    const t = pose[name] || defaultPose[name]
-    poseTarget[name] = { x: t.x, y: t.y, z: t.z }
-  }
-}
-
-function updateBodyPose(vrm, delta) {
-  const humanoid = vrm.humanoid
-  const rate = Math.min(1, delta * 3.0)
-  for (const name of poseBones) {
-    const cur = poseCurrent[name]
-    const tgt = poseTarget[name]
-    cur.x += (tgt.x - cur.x) * rate
-    cur.y += (tgt.y - cur.y) * rate
-    cur.z += (tgt.z - cur.z) * rate
-  }
-}
-
 function applyIdlePose(vrm) {
   const humanoid = vrm.humanoid
-  for (const name of poseBones) {
+  for (const [name, rot] of Object.entries(idlePose)) {
     const bone = humanoid.getNormalizedBoneNode(name)
-    if (bone) {
-      bone.rotation.x = poseCurrent[name].x
-      bone.rotation.y = poseCurrent[name].y
-      bone.rotation.z = poseCurrent[name].z
-    }
+    if (bone && rot.z !== undefined) bone.rotation.z = rot.z
   }
-  // Curl fingers for natural hand pose
   for (const side of ['left', 'right']) {
     for (const fb of fingerBones) {
       const bone = humanoid.getNormalizedBoneNode(side + fb)
@@ -371,34 +285,22 @@ function updateIdleAnimation(vrm, elapsed, delta) {
     neck.rotation.x = Math.sin(t * 0.4 + 1) * 0.01
   }
 
-  // Body pose lerp + arm sway layered on top
-  updateBodyPose(vrm, delta)
-  const pc = poseCurrent
+  // Arms — gentle sway on top of idle pose
   const leftUpper = humanoid.getNormalizedBoneNode('leftUpperArm')
   const rightUpper = humanoid.getNormalizedBoneNode('rightUpperArm')
   if (leftUpper) {
-    leftUpper.rotation.x = pc.leftUpperArm.x + Math.sin(t * 0.45 + 1) * 0.02
-    leftUpper.rotation.y = pc.leftUpperArm.y
-    leftUpper.rotation.z = pc.leftUpperArm.z + Math.sin(t * 0.6) * 0.03
+    leftUpper.rotation.z = 1.2 + Math.sin(t * 0.6) * 0.03
+    leftUpper.rotation.x = Math.sin(t * 0.45 + 1) * 0.02
   }
   if (rightUpper) {
-    rightUpper.rotation.x = pc.rightUpperArm.x + Math.sin(t * 0.4 + 2) * 0.02
-    rightUpper.rotation.y = pc.rightUpperArm.y
-    rightUpper.rotation.z = pc.rightUpperArm.z + Math.sin(t * 0.55 + 0.5) * 0.03
+    rightUpper.rotation.z = -1.2 + Math.sin(t * 0.55 + 0.5) * 0.03
+    rightUpper.rotation.x = Math.sin(t * 0.4 + 2) * 0.02
   }
 
   const leftLower = humanoid.getNormalizedBoneNode('leftLowerArm')
   const rightLower = humanoid.getNormalizedBoneNode('rightLowerArm')
-  if (leftLower) {
-    leftLower.rotation.x = pc.leftLowerArm.x
-    leftLower.rotation.y = pc.leftLowerArm.y
-    leftLower.rotation.z = pc.leftLowerArm.z + Math.sin(t * 0.7 + 0.3) * 0.02
-  }
-  if (rightLower) {
-    rightLower.rotation.x = pc.rightLowerArm.x
-    rightLower.rotation.y = pc.rightLowerArm.y
-    rightLower.rotation.z = pc.rightLowerArm.z + Math.sin(t * 0.65 + 1.5) * 0.02
-  }
+  if (leftLower) leftLower.rotation.z = 0.15 + Math.sin(t * 0.7 + 0.3) * 0.02
+  if (rightLower) rightLower.rotation.z = -0.15 + Math.sin(t * 0.65 + 1.5) * 0.02
 
   // Shoulders — micro shrug
   const leftShoulder = humanoid.getNormalizedBoneNode('leftShoulder')
