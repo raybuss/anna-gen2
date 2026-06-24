@@ -154,6 +154,7 @@ function setMood(moodName) {
   const weights = moodTable[moodName]
   if (!weights) { console.warn(`Unknown mood: ${moodName}`); return }
   for (const [name, w] of Object.entries(weights)) moodTarget[name] = w
+  setMoodPose(moodName)
   console.log(`Mood set: ${moodName}`)
 }
 
@@ -210,18 +211,120 @@ function loadVRM(url) {
   })
 }
 
-const idlePose = {
-  leftUpperArm: { z: 1.2 },
-  rightUpperArm: { z: -1.2 },
-  leftLowerArm: { z: 0.15 },
-  rightLowerArm: { z: -0.15 },
+// --- Body Pose System ---
+const defaultPose = {
+  leftUpperArm:  { x: 0, y: 0, z: 1.2 },
+  rightUpperArm: { x: 0, y: 0, z: -1.2 },
+  leftLowerArm:  { x: 0, y: 0, z: 0.15 },
+  rightLowerArm: { x: 0, y: 0, z: -0.15 },
+}
+
+const fingerBones = [
+  'IndexProximal', 'IndexIntermediate', 'IndexDistal',
+  'MiddleProximal', 'MiddleIntermediate', 'MiddleDistal',
+  'RingProximal', 'RingIntermediate', 'RingDistal',
+  'LittleProximal', 'LittleIntermediate', 'LittleDistal',
+  'ThumbProximal', 'ThumbDistal',
+]
+
+const moodPoses = {
+  irritated: {
+    leftUpperArm:  { x: 0.5, y: 0.3, z: 0.5 },
+    rightUpperArm: { x: 0.5, y: -0.3, z: -0.5 },
+    leftLowerArm:  { x: 0, y: 0, z: 1.3 },
+    rightLowerArm: { x: 0, y: 0, z: -1.3 },
+  },
+  flustered: {
+    leftUpperArm:  { x: 0.5, y: 0, z: 0.7 },
+    rightUpperArm: { x: 0.5, y: 0, z: -0.7 },
+    leftLowerArm:  { x: -0.3, y: 0, z: 1.0 },
+    rightLowerArm: { x: -0.3, y: 0, z: -1.0 },
+  },
+  indifferent: {
+    leftUpperArm:  { x: 0, y: 0, z: 1.25 },
+    rightUpperArm: { x: 0, y: 0, z: -1.25 },
+    leftLowerArm:  { x: 0, y: 0, z: 0.1 },
+    rightLowerArm: { x: 0, y: 0, z: -0.1 },
+  },
+  reluctant: {
+    leftUpperArm:  { x: 0.15, y: 0, z: 1.1 },
+    rightUpperArm: { x: 0.1, y: 0, z: -0.6 },
+    leftLowerArm:  { x: 0, y: 0, z: 0.2 },
+    rightLowerArm: { x: -0.2, y: 0, z: -0.8 },
+  },
+  softening: {
+    leftUpperArm:  { x: 0.1, y: 0, z: 1.15 },
+    rightUpperArm: { x: 0.1, y: 0, z: -1.15 },
+    leftLowerArm:  { x: 0, y: 0, z: 0.3 },
+    rightLowerArm: { x: 0, y: 0, z: -0.3 },
+  },
+  annoyed: {
+    leftUpperArm:  { x: 0.3, y: 0, z: 0.8 },
+    rightUpperArm: { x: 0.3, y: 0, z: -0.8 },
+    leftLowerArm:  { x: -0.2, y: -0.3, z: 0.6 },
+    rightLowerArm: { x: -0.2, y: 0.3, z: -0.6 },
+  },
+  smug: {
+    leftUpperArm:  { x: 0.3, y: 0, z: 0.8 },
+    rightUpperArm: { x: 0, y: 0, z: -1.2 },
+    leftLowerArm:  { x: -0.2, y: -0.3, z: 0.6 },
+    rightLowerArm: { x: 0, y: 0, z: -0.15 },
+  },
+  warm: {
+    leftUpperArm:  { x: 0.2, y: 0, z: 1.0 },
+    rightUpperArm: { x: 0.2, y: 0, z: -1.0 },
+    leftLowerArm:  { x: -0.1, y: 0, z: 0.4 },
+    rightLowerArm: { x: -0.1, y: 0, z: -0.4 },
+  },
+}
+
+const poseBones = Object.keys(defaultPose)
+const poseCurrent = {}
+const poseTarget = {}
+for (const name of poseBones) {
+  poseCurrent[name] = { ...defaultPose[name] }
+  poseTarget[name] = { ...defaultPose[name] }
+}
+
+function setMoodPose(moodName) {
+  const pose = moodPoses[moodName] || defaultPose
+  for (const name of poseBones) {
+    const t = pose[name] || defaultPose[name]
+    poseTarget[name] = { x: t.x, y: t.y, z: t.z }
+  }
+}
+
+function updateBodyPose(vrm, delta) {
+  const humanoid = vrm.humanoid
+  const rate = Math.min(1, delta * 3.0)
+  for (const name of poseBones) {
+    const cur = poseCurrent[name]
+    const tgt = poseTarget[name]
+    cur.x += (tgt.x - cur.x) * rate
+    cur.y += (tgt.y - cur.y) * rate
+    cur.z += (tgt.z - cur.z) * rate
+  }
 }
 
 function applyIdlePose(vrm) {
   const humanoid = vrm.humanoid
-  for (const [name, rot] of Object.entries(idlePose)) {
+  for (const name of poseBones) {
     const bone = humanoid.getNormalizedBoneNode(name)
-    if (bone && rot.z !== undefined) bone.rotation.z = rot.z
+    if (bone) {
+      bone.rotation.x = poseCurrent[name].x
+      bone.rotation.y = poseCurrent[name].y
+      bone.rotation.z = poseCurrent[name].z
+    }
+  }
+  // Curl fingers for natural hand pose
+  for (const side of ['left', 'right']) {
+    for (const fb of fingerBones) {
+      const bone = humanoid.getNormalizedBoneNode(side + fb)
+      if (bone) {
+        const curl = fb.includes('Thumb') ? 0.15 : fb.includes('Distal') ? 0.4 : fb.includes('Intermediate') ? 0.35 : 0.25
+        bone.rotation.z = side === 'left' ? curl : -curl
+      }
+    }
   }
   nextBlinkTime = clock.elapsedTime + 1 + Math.random() * 4
   blinkPhase = 0
@@ -230,22 +333,78 @@ function applyIdlePose(vrm) {
 
 function updateIdleAnimation(vrm, elapsed, delta) {
   const humanoid = vrm.humanoid
+  const t = elapsed
+
+  // Breathing — spine and chest expand/contract
   const spine = humanoid.getNormalizedBoneNode('spine')
   if (spine) {
-    spine.rotation.x = Math.sin(elapsed * 1.2) * 0.008
-    spine.rotation.z = Math.sin(elapsed * 0.7) * 0.005
+    spine.rotation.x = Math.sin(t * 1.2) * 0.025
+    spine.rotation.z = Math.sin(t * 0.5) * 0.012
   }
 
   const chest = humanoid.getNormalizedBoneNode('chest')
   if (chest) {
-    chest.rotation.x = Math.sin(elapsed * 1.2 + 0.5) * 0.006
+    chest.rotation.x = Math.sin(t * 1.2 + 0.5) * 0.018
+    chest.rotation.z = Math.sin(t * 0.7 + 1.0) * 0.008
   }
 
+  // Weight shift — hips sway side to side
+  const hips = humanoid.getNormalizedBoneNode('hips')
+  if (hips) {
+    hips.rotation.z = Math.sin(t * 0.4) * 0.015
+    hips.rotation.y = Math.sin(t * 0.3) * 0.01
+    hips.position.x = Math.sin(t * 0.4) * 0.01
+  }
+
+  // Head — natural look-around with varied speeds
   const head = humanoid.getNormalizedBoneNode('head')
   if (head) {
-    head.rotation.y = Math.sin(elapsed * 0.3) * 0.02
-    head.rotation.x = Math.sin(elapsed * 0.5) * 0.01
+    head.rotation.y = Math.sin(t * 0.35) * 0.06 + Math.sin(t * 0.13) * 0.03
+    head.rotation.x = Math.sin(t * 0.5) * 0.03 + Math.sin(t * 0.19) * 0.015
+    head.rotation.z = Math.sin(t * 0.25) * 0.015
   }
+
+  // Neck — subtle independent layer
+  const neck = humanoid.getNormalizedBoneNode('neck')
+  if (neck) {
+    neck.rotation.y = Math.sin(t * 0.28 + 2) * 0.02
+    neck.rotation.x = Math.sin(t * 0.4 + 1) * 0.01
+  }
+
+  // Body pose lerp + arm sway layered on top
+  updateBodyPose(vrm, delta)
+  const pc = poseCurrent
+  const leftUpper = humanoid.getNormalizedBoneNode('leftUpperArm')
+  const rightUpper = humanoid.getNormalizedBoneNode('rightUpperArm')
+  if (leftUpper) {
+    leftUpper.rotation.x = pc.leftUpperArm.x + Math.sin(t * 0.45 + 1) * 0.02
+    leftUpper.rotation.y = pc.leftUpperArm.y
+    leftUpper.rotation.z = pc.leftUpperArm.z + Math.sin(t * 0.6) * 0.03
+  }
+  if (rightUpper) {
+    rightUpper.rotation.x = pc.rightUpperArm.x + Math.sin(t * 0.4 + 2) * 0.02
+    rightUpper.rotation.y = pc.rightUpperArm.y
+    rightUpper.rotation.z = pc.rightUpperArm.z + Math.sin(t * 0.55 + 0.5) * 0.03
+  }
+
+  const leftLower = humanoid.getNormalizedBoneNode('leftLowerArm')
+  const rightLower = humanoid.getNormalizedBoneNode('rightLowerArm')
+  if (leftLower) {
+    leftLower.rotation.x = pc.leftLowerArm.x
+    leftLower.rotation.y = pc.leftLowerArm.y
+    leftLower.rotation.z = pc.leftLowerArm.z + Math.sin(t * 0.7 + 0.3) * 0.02
+  }
+  if (rightLower) {
+    rightLower.rotation.x = pc.rightLowerArm.x
+    rightLower.rotation.y = pc.rightLowerArm.y
+    rightLower.rotation.z = pc.rightLowerArm.z + Math.sin(t * 0.65 + 1.5) * 0.02
+  }
+
+  // Shoulders — micro shrug
+  const leftShoulder = humanoid.getNormalizedBoneNode('leftShoulder')
+  const rightShoulder = humanoid.getNormalizedBoneNode('rightShoulder')
+  if (leftShoulder) leftShoulder.rotation.z = Math.sin(t * 0.5 + 0.8) * 0.008
+  if (rightShoulder) rightShoulder.rotation.z = Math.sin(t * 0.5 + 0.8) * -0.008
 
   updateBlink(vrm, elapsed)
   updateLipSync(vrm, elapsed, delta)
