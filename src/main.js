@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { VRMLoaderPlugin } from '@pixiv/three-vrm'
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { buildApartment } from './apartment.js'
 
 const container = document.getElementById('viewer')
@@ -59,6 +59,10 @@ const clock = new THREE.Clock()
 let currentVRM = null
 let nextBlinkTime = 0
 let blinkPhase = 0
+const restQuaternions = {}
+let boneZSign = 1
+const _dQ = new THREE.Quaternion()
+const _dE = new THREE.Euler()
 
 // --- Speech & Lip Sync ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)()
@@ -219,10 +223,15 @@ function loadVRM(url) {
     if (currentVRM) scene.remove(currentVRM.scene)
     currentVRM = vrm
     window.currentVRM = vrm
-    vrm.scene.rotation.y = Math.PI
+    validatedExpressions.clear()
+    warnedExpressions.clear()
+    VRMUtils.rotateVRM0(vrm)
+    boneZSign = vrm.meta?.metaVersion === '0' ? 1 : -1
     vrm.scene.traverse((obj) => {
       if (obj.isMesh) obj.castShadow = true
     })
+    vrm.humanoid.resetNormalizedPose()
+    captureRestPose(vrm)
     applyIdlePose(vrm)
     scene.add(vrm.scene)
     console.log('VRM loaded', vrm)
@@ -233,11 +242,11 @@ function loadVRM(url) {
   })
 }
 
-const idlePose = {
-  leftUpperArm: { z: 1.2 },
-  rightUpperArm: { z: -1.2 },
-  leftLowerArm: { z: 0.15 },
-  rightLowerArm: { z: -0.15 },
+const idlePoseDeltas = {
+  leftUpperArm:  { x: 0, y: 0, z: 1.2 },
+  rightUpperArm: { x: 0, y: 0, z: -1.2 },
+  leftLowerArm:  { x: 0, y: 0, z: 0.15 },
+  rightLowerArm: { x: 0, y: 0, z: -0.15 },
 }
 
 const fingerBones = [
@@ -248,18 +257,52 @@ const fingerBones = [
   'ThumbProximal', 'ThumbDistal',
 ]
 
-function applyIdlePose(vrm) {
+const posedBoneNames = [
+  'hips', 'spine', 'chest', 'neck', 'head',
+  'leftShoulder', 'rightShoulder',
+  'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm',
+]
+
+function captureRestPose(vrm) {
+  for (const k of Object.keys(restQuaternions)) delete restQuaternions[k]
   const humanoid = vrm.humanoid
-  for (const [name, rot] of Object.entries(idlePose)) {
+  for (const name of posedBoneNames) {
     const bone = humanoid.getNormalizedBoneNode(name)
-    if (bone && rot.z !== undefined) bone.rotation.z = rot.z
+    if (bone) restQuaternions[name] = bone.quaternion.clone()
   }
   for (const side of ['left', 'right']) {
     for (const fb of fingerBones) {
-      const bone = humanoid.getNormalizedBoneNode(side + fb)
+      const name = side + fb
+      const bone = humanoid.getNormalizedBoneNode(name)
+      if (bone) restQuaternions[name] = bone.quaternion.clone()
+    }
+  }
+}
+
+function setBoneFromRest(name, bone, dx, dy, dz) {
+  const rest = restQuaternions[name]
+  if (rest) {
+    _dE.set(dx, dy, dz)
+    _dQ.setFromEuler(_dE)
+    bone.quaternion.copy(rest).multiply(_dQ)
+  } else {
+    bone.rotation.set(dx, dy, dz)
+  }
+}
+
+function applyIdlePose(vrm) {
+  const humanoid = vrm.humanoid
+  for (const [name, d] of Object.entries(idlePoseDeltas)) {
+    const bone = humanoid.getNormalizedBoneNode(name)
+    if (bone) setBoneFromRest(name, bone, d.x, d.y, d.z * boneZSign)
+  }
+  for (const side of ['left', 'right']) {
+    for (const fb of fingerBones) {
+      const name = side + fb
+      const bone = humanoid.getNormalizedBoneNode(name)
       if (bone) {
         const curl = fb.includes('Thumb') ? 0.15 : fb.includes('Distal') ? 0.4 : fb.includes('Intermediate') ? 0.35 : 0.25
-        bone.rotation.z = side === 'left' ? curl : -curl
+        setBoneFromRest(name, bone, 0, 0, (side === 'left' ? curl : -curl) * boneZSign)
       }
     }
   }
@@ -272,64 +315,46 @@ function updateIdleAnimation(vrm, elapsed, delta) {
   const humanoid = vrm.humanoid
   const t = elapsed
 
-  // Breathing — spine and chest expand/contract
   const spine = humanoid.getNormalizedBoneNode('spine')
-  if (spine) {
-    spine.rotation.x = Math.sin(t * 1.2) * 0.025
-    spine.rotation.z = Math.sin(t * 0.5) * 0.012
-  }
+  if (spine) setBoneFromRest('spine', spine, Math.sin(t * 1.2) * 0.025, 0, Math.sin(t * 0.5) * 0.012)
 
   const chest = humanoid.getNormalizedBoneNode('chest')
-  if (chest) {
-    chest.rotation.x = Math.sin(t * 1.2 + 0.5) * 0.018
-    chest.rotation.z = Math.sin(t * 0.7 + 1.0) * 0.008
-  }
+  if (chest) setBoneFromRest('chest', chest, Math.sin(t * 1.2 + 0.5) * 0.018, 0, Math.sin(t * 0.7 + 1.0) * 0.008)
 
-  // Weight shift — hips sway side to side
   const hips = humanoid.getNormalizedBoneNode('hips')
   if (hips) {
-    hips.rotation.z = Math.sin(t * 0.4) * 0.015
-    hips.rotation.y = Math.sin(t * 0.3) * 0.01
-    hips.position.x = Math.sin(t * 0.4) * 0.01
+    setBoneFromRest('hips', hips, 0, Math.sin(t * 0.3) * 0.01, Math.sin(t * 0.4) * 0.015)
+    hips.position.x = (restQuaternions.hips ? 0 : 0) + Math.sin(t * 0.4) * 0.01
   }
 
-  // Head — natural look-around with varied speeds
   const head = humanoid.getNormalizedBoneNode('head')
   if (head) {
-    head.rotation.y = Math.sin(t * 0.35) * 0.06 + Math.sin(t * 0.13) * 0.03
-    head.rotation.x = Math.sin(t * 0.5) * 0.03 + Math.sin(t * 0.19) * 0.015
-    head.rotation.z = Math.sin(t * 0.25) * 0.015
+    const hx = Math.sin(t * 0.5) * 0.03 + Math.sin(t * 0.19) * 0.015
+    const hy = Math.sin(t * 0.35) * 0.06 + Math.sin(t * 0.13) * 0.03
+    const hz = Math.sin(t * 0.25) * 0.015
+    setBoneFromRest('head', head, hx, hy, hz)
   }
 
-  // Neck — subtle independent layer
   const neck = humanoid.getNormalizedBoneNode('neck')
-  if (neck) {
-    neck.rotation.y = Math.sin(t * 0.28 + 2) * 0.02
-    neck.rotation.x = Math.sin(t * 0.4 + 1) * 0.01
-  }
+  if (neck) setBoneFromRest('neck', neck, Math.sin(t * 0.4 + 1) * 0.01, Math.sin(t * 0.28 + 2) * 0.02, 0)
 
-  // Arms — gentle sway on top of idle pose
   const leftUpper = humanoid.getNormalizedBoneNode('leftUpperArm')
+  if (leftUpper) setBoneFromRest('leftUpperArm', leftUpper, Math.sin(t * 0.45 + 1) * 0.02, 0, (1.2 + Math.sin(t * 0.6) * 0.03) * boneZSign)
+
   const rightUpper = humanoid.getNormalizedBoneNode('rightUpperArm')
-  if (leftUpper) {
-    leftUpper.rotation.z = 1.2 + Math.sin(t * 0.6) * 0.03
-    leftUpper.rotation.x = Math.sin(t * 0.45 + 1) * 0.02
-  }
-  if (rightUpper) {
-    rightUpper.rotation.z = -1.2 + Math.sin(t * 0.55 + 0.5) * 0.03
-    rightUpper.rotation.x = Math.sin(t * 0.4 + 2) * 0.02
-  }
+  if (rightUpper) setBoneFromRest('rightUpperArm', rightUpper, Math.sin(t * 0.4 + 2) * 0.02, 0, (-1.2 + Math.sin(t * 0.55 + 0.5) * 0.03) * boneZSign)
 
   const leftLower = humanoid.getNormalizedBoneNode('leftLowerArm')
-  const rightLower = humanoid.getNormalizedBoneNode('rightLowerArm')
-  if (leftLower) leftLower.rotation.z = 0.15 + Math.sin(t * 0.7 + 0.3) * 0.02
-  if (rightLower) rightLower.rotation.z = -0.15 + Math.sin(t * 0.65 + 1.5) * 0.02
+  if (leftLower) setBoneFromRest('leftLowerArm', leftLower, 0, 0, (0.15 + Math.sin(t * 0.7 + 0.3) * 0.02) * boneZSign)
 
-  // Shoulders — micro shrug
+  const rightLower = humanoid.getNormalizedBoneNode('rightLowerArm')
+  if (rightLower) setBoneFromRest('rightLowerArm', rightLower, 0, 0, (-0.15 + Math.sin(t * 0.65 + 1.5) * 0.02) * boneZSign)
+
   const leftShoulder = humanoid.getNormalizedBoneNode('leftShoulder')
+  if (leftShoulder) setBoneFromRest('leftShoulder', leftShoulder, 0, 0, Math.sin(t * 0.5 + 0.8) * 0.008 * boneZSign)
+
   const rightShoulder = humanoid.getNormalizedBoneNode('rightShoulder')
-  if (leftShoulder) leftShoulder.rotation.z = Math.sin(t * 0.5 + 0.8) * 0.008
-  if (rightShoulder) rightShoulder.rotation.z = Math.sin(t * 0.5 + 0.8) * -0.008
+  if (rightShoulder) setBoneFromRest('rightShoulder', rightShoulder, 0, 0, Math.sin(t * 0.5 + 0.8) * -0.008 * boneZSign)
 
   updateBlink(vrm, elapsed)
   updateLipSync(vrm, elapsed, delta)
@@ -374,9 +399,43 @@ document.getElementById('dev-toggle').addEventListener('click', () => {
   devPanel.style.display = devPanel.style.display === 'none' ? 'block' : 'none'
 })
 
-document.getElementById('url').value = defaultURL
+const modelSelect = document.getElementById('model-select')
+const urlInput = document.getElementById('url')
+
+const availableModels = [
+  { name: 'AvatarSample_A', path: '/models/AvatarSample_A.vrm' },
+  { name: 'test2', path: '/models/test2.vrm' },
+]
+
+availableModels.forEach((m) => {
+  const opt = document.createElement('option')
+  opt.value = m.path
+  opt.textContent = m.name
+  modelSelect.appendChild(opt)
+})
+
+const customOpt = document.createElement('option')
+customOpt.value = '__custom__'
+customOpt.textContent = '— custom URL —'
+modelSelect.appendChild(customOpt)
+
+modelSelect.value = defaultURL
+urlInput.style.display = 'none'
+
+modelSelect.addEventListener('change', () => {
+  if (modelSelect.value === '__custom__') {
+    urlInput.style.display = ''
+    urlInput.focus()
+  } else {
+    urlInput.style.display = 'none'
+    urlInput.value = ''
+  }
+})
+
 document.getElementById('load').addEventListener('click', () => {
-  const url = document.getElementById('url').value.trim() || defaultURL
+  const url = modelSelect.value === '__custom__'
+    ? urlInput.value.trim() || defaultURL
+    : modelSelect.value
   loadVRM(url)
 })
 

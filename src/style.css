@@ -6,6 +6,7 @@ html,body,#app,#viewer{height:100%;margin:0}
 #dev-toggle{padding:4px 8px;font-size:11px;cursor:pointer;border:none;border-radius:4px;background:rgba(255,255,255,0.3);color:#ccc}
 #dev-toggle:hover{background:rgba(255,255,255,0.5);color:#333}
 #dev-panel{background:rgba(255,255,255,0.9);padding:8px;border-radius:6px;margin-top:4px;color:#333}
+#model-select{padding:3px;font-size:12px}
 #url,#speech-text{width:280px;padding:3px;font-size:12px}
 .ui-row{margin-bottom:4px}
 .ui-row:last-child{margin-bottom:0}
