@@ -76,37 +76,13 @@ let mouthValue = 0
 
 async function speak(text) {
   audioCtx.resume()
-  if (!authToken) {
-    // Fallback to browser TTS when not logged in
-    window.speechSynthesis.cancel()
-    isSpeaking = true
-    useAnalyser = false
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.onend = () => { isSpeaking = false }
-    utterance.onerror = () => { isSpeaking = false }
-    window.speechSynthesis.speak(utterance)
-    return
-  }
   try {
     const res = await fetch(`${API_BASE}/api/speech`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })
-    if (!res.ok) {
-      console.warn(`Speech API error ${res.status}, falling back to browser TTS`)
-      window.speechSynthesis.cancel()
-      isSpeaking = true
-      useAnalyser = false
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.onend = () => { isSpeaking = false }
-      utterance.onerror = () => { isSpeaking = false }
-      window.speechSynthesis.speak(utterance)
-      return
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const audio = new Audio(URL.createObjectURL(await res.blob()))
     const source = audioCtx.createMediaElementSource(audio)
     source.connect(analyser)
@@ -115,8 +91,7 @@ async function speak(text) {
     audio.onplay = () => { isSpeaking = true }
     audio.onended = () => { isSpeaking = false }
     audio.play()
-  } catch (e) {
-    console.warn('Speech API failed, falling back to browser TTS:', e.message)
+  } catch {
     window.speechSynthesis.cancel()
     isSpeaking = true
     useAnalyser = false
@@ -391,7 +366,7 @@ function updateBlink(vrm, elapsed) {
   vrm.expressionManager.setValue('blink', value)
 }
 
-const defaultURL = '/models/AvatarSample_A.vrm'
+const defaultURL = '/models/anna.vrm'
 
 // Dev tools toggle
 const devPanel = document.getElementById('dev-panel')
@@ -453,27 +428,28 @@ for (const mood of Object.keys(moodTable)) {
   moodContainer.appendChild(btn)
 }
 
-// --- Chat System ---
-const API_BASE = '' // proxied via vite.config.js in dev; set to 'https://anna.bytor.co' in production
-let authToken = null
-const chatMessages = []
+// --- Chat System (mock mode) ---
+const moods = Object.keys(moodTable)
 
-const SYSTEM_PROMPT = `You are Anna, a young woman who just moved into a high-rise city apartment. You're getting settled in. You have a dry wit and warm personality underneath a slightly guarded exterior.
+const mockResponses = [
+  { text: "Oh, you're here already? I haven't even finished unpacking.", mood: 'reluctant' },
+  { text: "Don't touch that box. It's... organized chaos.", mood: 'irritated' },
+  { text: "I guess you can stay for a bit. Just don't move anything.", mood: 'softening' },
+  { text: "Fine. You can help me figure out where the coffee maker goes.", mood: 'reluctant' },
+  { text: "You know, this place actually has a pretty decent view at night.", mood: 'warm' },
+  { text: "Did I ask for your opinion on my decorating? No? Exactly.", mood: 'annoyed' },
+  { text: "...thanks. That actually helped.", mood: 'softening' },
+  { text: "I knew that already, obviously.", mood: 'smug' },
+  { text: "Wait, what was that noise? Oh. Just the pipes. Old building.", mood: 'flustered' },
+  { text: "You're still here? I mean... I don't mind. Whatever.", mood: 'indifferent' },
+  { text: "Okay fine, that was actually funny.", mood: 'warm' },
+  { text: "Don't get used to this. I'm only being nice because you brought coffee.", mood: 'smug' },
+]
 
-Respond with a JSON object containing:
-- "text": your spoken reply (1-3 sentences, conversational)
-- "mood": one of: irritated, flustered, indifferent, reluctant, softening, annoyed, smug, warm
-- "affection_delta": a number from -2 to +2 indicating how this interaction changed your feelings
-
-Example response:
-{"text": "Oh, you're here already? I haven't even finished unpacking.", "mood": "reluctant", "affection_delta": 0}
-
-Always respond with valid JSON only, no markdown or extra text.`
+let mockIndex = 0
 
 const chatLog = document.getElementById('chat-log')
-const chatInputRow = document.getElementById('chat-input-row')
 const chatInput = document.getElementById('chat-input')
-const loginStatus = document.getElementById('login-status')
 
 function appendChatMsg(sender, text, mood) {
   const div = document.createElement('div')
@@ -484,113 +460,25 @@ function appendChatMsg(sender, text, mood) {
   chatLog.scrollTop = chatLog.scrollHeight
 }
 
-document.getElementById('login-btn').addEventListener('click', async () => {
-  const user = document.getElementById('login-user').value.trim()
-  const pass = document.getElementById('login-pass').value
-  if (!user || !pass) return
-  loginStatus.textContent = 'Logging in…'
-  try {
-    const res = await fetch(`${API_BASE}/api/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: user, password: pass }),
-    })
-    if (!res.ok) {
-      const err = await res.text()
-      loginStatus.textContent = `Login failed: ${res.status}`
-      console.warn('Login failed:', err)
-      return
-    }
-    const data = await res.json()
-    authToken = data.token
-    loginStatus.textContent = `Logged in as ${user}`
-    document.getElementById('login-form').style.display = 'none'
-    chatInputRow.style.display = 'flex'
-    appendChatMsg('System', 'Connected. Say hi to Anna.')
-  } catch (e) {
-    loginStatus.textContent = `Error: ${e.message}`
-    if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
-      console.error('CORS or network error — the anna-web backend may need CORS headers for this origin')
-    }
-  }
-})
-
-async function sendChat() {
+function sendChat() {
   const text = chatInput.value.trim()
-  if (!text || !authToken) return
+  if (!text) return
   chatInput.value = ''
-  chatInput.disabled = true
 
   appendChatMsg('You', text)
-  chatMessages.push({ role: 'user', content: text })
 
-  try {
-    const res = await fetch(`${API_BASE}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 350,
-        system: SYSTEM_PROMPT,
-        messages: chatMessages,
-      }),
-    })
+  const response = mockResponses[mockIndex % mockResponses.length]
+  mockIndex++
 
-    if (!res.ok) {
-      const err = await res.text()
-      appendChatMsg('System', `Error ${res.status}: ${err}`)
-      if (res.status === 401) {
-        loginStatus.textContent = 'Session expired'
-        document.getElementById('login-form').style.display = 'flex'
-        chatInputRow.style.display = 'none'
-        authToken = null
-      }
-      chatInput.disabled = false
-      return
+  setTimeout(() => {
+    appendChatMsg('Anna', response.text, response.mood)
+
+    if (response.mood && moodTable[response.mood]) {
+      setMood(response.mood)
     }
 
-    const data = await res.json()
-    const rawContent = typeof data.content === 'string'
-      ? data.content
-      : Array.isArray(data.content)
-        ? data.content.map(b => b.text || '').join('')
-        : JSON.stringify(data)
-
-    let replyText = rawContent
-    let mood = null
-    let affectionDelta = 0
-
-    try {
-      const parsed = JSON.parse(rawContent)
-      replyText = parsed.text || rawContent
-      mood = parsed.mood || null
-      affectionDelta = parsed.affection_delta || 0
-    } catch {
-      // Response wasn't JSON — use raw text
-    }
-
-    chatMessages.push({ role: 'assistant', content: rawContent })
-    appendChatMsg('Anna', replyText, mood)
-
-    if (mood && moodTable[mood]) {
-      setMood(mood)
-    } else if (mood) {
-      console.warn(`Unknown mood from API: "${mood}"`)
-    }
-
-    if (replyText && currentVRM) speak(replyText)
-
-  } catch (e) {
-    appendChatMsg('System', `Error: ${e.message}`)
-    if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
-      console.error('CORS or network error on /api/chat — anna-web backend may need CORS headers for this origin')
-    }
-  }
-  chatInput.disabled = false
-  chatInput.focus()
+    if (currentVRM) speak(response.text)
+  }, 300 + Math.random() * 700)
 }
 
 document.getElementById('chat-send').addEventListener('click', sendChat)

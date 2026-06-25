@@ -655,6 +655,21 @@ export function buildApartment() {
   const plant5 = makePlant(0.05, 0.08, 0.06, 0.1, 3)
   plant5.position.set(-9.2, 0.92, -3.2); apt.add(plant5)
 
+  // --- Front wall decor (Z=3, faces -Z into room) ---
+  const fArt1 = makeFramedArt(0.9, 0.6, 0x1a3a5a)
+  fArt1.rotation.y = Math.PI
+  fArt1.position.set(-3, 1.8, 2.985); apt.add(fArt1)
+
+  const fArt2 = makeFramedArt(0.55, 0.7, 0x7a3322)
+  fArt2.rotation.y = Math.PI
+  fArt2.position.set(1.5, 1.75, 2.985); apt.add(fArt2)
+
+  const fPlant1 = makePlant(0.16, 0.3, 0.2, 0.45, 5)
+  fPlant1.position.set(-1.8, 0, 2.4); apt.add(fPlant1)
+
+  const fPlant2 = makePlant(0.1, 0.15, 0.12, 0.2, 4)
+  fPlant2.position.set(1.0, 0, 2.4); apt.add(fPlant2)
+
   // --- Upright Piano (living room, against partition) ---
   const piano = new THREE.Group()
   const pianoWood = new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.4, metalness: 0.05 })
