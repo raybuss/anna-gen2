@@ -404,7 +404,7 @@ const urlInput = document.getElementById('url')
 
 const availableModels = [
   { name: 'AvatarSample_A', path: '/models/AvatarSample_A.vrm' },
-  { name: 'test2', path: '/models/test2.vrm' },
+  { name: 'anna', path: '/models/anna.vrm' },
 ]
 
 availableModels.forEach((m) => {
