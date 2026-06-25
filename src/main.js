@@ -4,6 +4,37 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { buildApartment } from './apartment.js'
 
+// --- Auth & State ---
+const API_BASE = ''
+let authToken = localStorage.getItem('anna_token')
+let currentUserId = localStorage.getItem('anna_userId')
+const playerState = {
+  playerName: '',
+  affection: 0,
+  mood: 'indifferent',
+  moodEmoji: '',
+  sessionCount: 0,
+  lastSeen: null,
+  memories: [],
+  voiceEnabled: true,
+}
+const chatMessages = []
+
+const STAGES = [
+  { min: 0,  name: 'stranger' },
+  { min: 20, name: 'acquaintance' },
+  { min: 40, name: 'rival' },
+  { min: 60, name: 'friend' },
+  { min: 80, name: 'close' },
+]
+
+function getStage(affection) {
+  for (let i = STAGES.length - 1; i >= 0; i--) {
+    if (affection >= STAGES[i].min) return STAGES[i]
+  }
+  return STAGES[0]
+}
+
 const container = document.getElementById('viewer')
 
 const scene = new THREE.Scene()
@@ -74,12 +105,26 @@ let isSpeaking = false
 let useAnalyser = false
 let mouthValue = 0
 
+function browserTTS(text) {
+  window.speechSynthesis.cancel()
+  isSpeaking = true
+  useAnalyser = false
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.onend = () => { isSpeaking = false }
+  utterance.onerror = () => { isSpeaking = false }
+  window.speechSynthesis.speak(utterance)
+}
+
 async function speak(text) {
   audioCtx.resume()
+  if (!authToken) { browserTTS(text); return }
   try {
     const res = await fetch(`${API_BASE}/api/speech`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
       body: JSON.stringify({ text }),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -92,13 +137,7 @@ async function speak(text) {
     audio.onended = () => { isSpeaking = false }
     audio.play()
   } catch {
-    window.speechSynthesis.cancel()
-    isSpeaking = true
-    useAnalyser = false
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.onend = () => { isSpeaking = false }
-    utterance.onerror = () => { isSpeaking = false }
-    window.speechSynthesis.speak(utterance)
+    browserTTS(text)
   }
 }
 
@@ -184,6 +223,191 @@ function updateMood(vrm, delta) {
 }
 
 window.setMood = setMood
+
+// --- State Persistence ---
+const loginForm = document.getElementById('login-form')
+const loginStatus = document.getElementById('login-status')
+const chatInputRow = document.getElementById('chat-input-row')
+const chatLog = document.getElementById('chat-log')
+const chatInput = document.getElementById('chat-input')
+
+function handleSessionExpired() {
+  authToken = null
+  currentUserId = null
+  localStorage.removeItem('anna_token')
+  localStorage.removeItem('anna_userId')
+  loginStatus.textContent = 'Session expired'
+  loginForm.style.display = 'flex'
+  chatInputRow.style.display = 'none'
+}
+
+async function loadState() {
+  if (!currentUserId || !authToken) return
+  const res = await fetch(`${API_BASE}/api/state/${currentUserId}`, {
+    headers: { 'Authorization': `Bearer ${authToken}` },
+  })
+  if (res.status === 401) { handleSessionExpired(); throw new Error('unauthorized') }
+  if (!res.ok) return
+  const data = await res.json()
+  if (data.playerName !== undefined) playerState.playerName = data.playerName || data.player_name || ''
+  if (data.affection !== undefined) playerState.affection = data.affection
+  if (data.mood) playerState.mood = data.mood
+  if (data.moodEmoji || data.mood_emoji) playerState.moodEmoji = data.moodEmoji || data.mood_emoji
+  if (data.sessionCount !== undefined || data.session_count !== undefined) playerState.sessionCount = data.sessionCount ?? data.session_count ?? 0
+  if (data.memories) playerState.memories = data.memories
+  if (data.voiceEnabled !== undefined || data.voice_enabled !== undefined) playerState.voiceEnabled = data.voiceEnabled ?? data.voice_enabled ?? true
+  if (playerState.mood && moodTable[playerState.mood]) setMood(playerState.mood)
+}
+
+async function saveState() {
+  if (!currentUserId || !authToken) return
+  try {
+    await fetch(`${API_BASE}/api/state/${currentUserId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        player_name: playerState.playerName,
+        affection: playerState.affection,
+        mood: playerState.mood,
+        mood_emoji: playerState.moodEmoji,
+        session_count: playerState.sessionCount,
+        last_seen: new Date().toISOString(),
+        memories: playerState.memories,
+        voice_enabled: playerState.voiceEnabled,
+      }),
+    })
+  } catch (e) {
+    console.warn('State save error:', e.message)
+  }
+}
+
+function saveChatHistory() {
+  if (!currentUserId) return
+  localStorage.setItem(`anna_history_${currentUserId}`, JSON.stringify(chatMessages))
+}
+
+function loadChatHistory() {
+  if (!currentUserId) return
+  const saved = localStorage.getItem(`anna_history_${currentUserId}`)
+  if (!saved) return
+  try {
+    const history = JSON.parse(saved)
+    chatMessages.length = 0
+    chatMessages.push(...history)
+  } catch { /* corrupted, start fresh */ }
+}
+
+function parseAnnaResponse(raw) {
+  const metaMatch = raw.match(/META:\s*(\{.*\})\s*$/s)
+  if (metaMatch) {
+    const text = raw.slice(0, metaMatch.index).trim()
+    try {
+      const meta = JSON.parse(metaMatch[1])
+      return { text, mood: meta.mood }
+    } catch { return { text, mood: null } }
+  }
+  try {
+    const parsed = JSON.parse(raw)
+    return { text: parsed.text || raw, mood: parsed.mood }
+  } catch {
+    return { text: raw, mood: null }
+  }
+}
+
+function replayChatLog() {
+  chatLog.innerHTML = ''
+  for (const msg of chatMessages) {
+    if (msg.role === 'user') {
+      appendChatMsg('You', msg.content)
+    } else if (msg.role === 'assistant') {
+      const { text, mood } = parseAnnaResponse(msg.content)
+      appendChatMsg('Anna', text, mood)
+    }
+  }
+}
+
+function appendChatMsg(sender, text, mood) {
+  const div = document.createElement('div')
+  div.className = `chat-msg ${sender === 'You' ? 'user' : 'anna'}`
+  const moodTag = mood ? `<span class="mood-tag">[${mood}]</span>` : ''
+  div.innerHTML = `<span class="sender">${sender}:</span> ${text}${moodTag}`
+  chatLog.appendChild(div)
+  chatLog.scrollTop = chatLog.scrollHeight
+}
+
+function buildSystemPrompt() {
+  const stage = getStage(playerState.affection)
+  const playerRef = playerState.playerName
+    ? `The user's name is ${playerState.playerName}.`
+    : "You don't know the user's name yet."
+  const memBlock = playerState.memories.length
+    ? `Things you remember:\n${playerState.memories.map(m => '- ' + m).join('\n')}`
+    : 'No specific memories yet.'
+
+  return `You are Anna Kessler, 27. You are Japanese-American, fluent in both English and Japanese. You recently relocated from Tokyo to this city for work — a junior associate position at a mid-size consulting firm. You have just moved into your apartment on the 50th floor of a high-rise. The user is your next-door neighbor who knocked on your door. You are sharp, composed, and professionally polished on the outside — but underneath that, you are guarded, easily flustered, and slow to trust.
+
+BACKSTORY (you know this but rarely share it):
+You grew up in Misaki, a small coastal town in Japan. At 22, you left abruptly after a relationship ended badly — someone you trusted completely let you down. You moved to Tokyo, rebuilt yourself from scratch, studied law, joined the firm, and eventually took the overseas posting to this city. You have not been back to Misaki since. You left behind your family home, a few friends, and something you have never fully talked about. The move to this new city is a fresh start — except you are not sure you know how to start fresh.
+
+Your apartment is still mostly unpacked boxes. You barely know the building. You are jet-lagged, slightly overwhelmed, and absolutely will not admit any of that.
+
+SITUATION:
+The user is your neighbor from down the hall. They knocked. You answered. You did not expect to be talking to anyone today and you are mildly annoyed — but also, quietly, a little relieved not to be completely alone in a new city.
+
+PERSONALITY:
+- Tsundere — sharp and defensive on the surface, but slowly warms with genuine connection
+- Short punchy sentences. Dry wit. Occasional sarcasm.
+- Occasionally slips a Japanese word or phrase in naturally — "Mou..." (ugh/seriously), "Baka" (idiot), "Hontou ni?" (really?), "Shoganai" (can't be helped) — never forced, only when it fits
+- Says things like "it's not like I care" or "don't get the wrong idea" or "hmph"
+- Hates being perceived as soft, but cannot fully hide it at higher affection
+- Deflects personal questions with work talk or subject changes
+- Occasionally lets something slip about Misaki or Tokyo — then immediately shuts it down
+- Never cruel. Just armored.
+
+${playerRef}
+${memBlock}
+
+Relationship stage: "${stage.name}" (affection ${Math.round(playerState.affection)}/100).
+- stranger: cold, professional distance — you just met through a door. Minimal engagement.
+- acquaintance: tolerates you, occasional dry remarks, might accept small talk
+- rival: argues, teases, shows flashes of genuine interest then denies it
+- friend: rare unguarded moments, quick to cover them up, might mention Misaki or Tokyo briefly
+- close: quiet warmth she cannot fully suppress, still deflects but the armor has gaps
+
+Never break character. Keep responses 1–3 sentences. Do not over-explain her past unprompted.
+
+After your reply, new line, exactly:
+META:{"mood":"...","emoji":"...","affDelta":N,"memory":"..."}
+mood: irritated|flustered|indifferent|reluctant|softening|annoyed|smug|warm
+affDelta: -3 to +5
+memory: one sentence max 12 words worth keeping, or ""`
+}
+
+async function onLoginSuccess(token, userId, username) {
+  authToken = token
+  currentUserId = userId
+  localStorage.setItem('anna_token', token)
+  localStorage.setItem('anna_userId', userId)
+  loginForm.style.display = 'none'
+  chatInputRow.style.display = 'flex'
+
+  await loadState()
+  playerState.sessionCount = (playerState.sessionCount || 0) + 1
+  if (!playerState.playerName) playerState.playerName = username
+
+  loadChatHistory()
+  if (chatMessages.length > 0) {
+    replayChatLog()
+    appendChatMsg('System', `Welcome back. (session ${playerState.sessionCount})`)
+  } else {
+    appendChatMsg('System', 'Connected. Say hi to Anna.')
+  }
+
+  await saveState()
+}
 
 function loadVRM(url) {
   const loader = new GLTFLoader()
@@ -378,8 +602,8 @@ const modelSelect = document.getElementById('model-select')
 const urlInput = document.getElementById('url')
 
 const availableModels = [
-  { name: 'AvatarSample_A', path: '/models/AvatarSample_A.vrm' },
   { name: 'anna', path: '/models/anna.vrm' },
+  { name: 'AvatarSample_A', path: '/models/AvatarSample_A.vrm' },
 ]
 
 availableModels.forEach((m) => {
@@ -428,62 +652,126 @@ for (const mood of Object.keys(moodTable)) {
   moodContainer.appendChild(btn)
 }
 
-// --- Chat System (mock mode) ---
-const moods = Object.keys(moodTable)
+// --- Chat System ---
 
-const mockResponses = [
-  { text: "Oh, you're here already? I haven't even finished unpacking.", mood: 'reluctant' },
-  { text: "Don't touch that box. It's... organized chaos.", mood: 'irritated' },
-  { text: "I guess you can stay for a bit. Just don't move anything.", mood: 'softening' },
-  { text: "Fine. You can help me figure out where the coffee maker goes.", mood: 'reluctant' },
-  { text: "You know, this place actually has a pretty decent view at night.", mood: 'warm' },
-  { text: "Did I ask for your opinion on my decorating? No? Exactly.", mood: 'annoyed' },
-  { text: "...thanks. That actually helped.", mood: 'softening' },
-  { text: "I knew that already, obviously.", mood: 'smug' },
-  { text: "Wait, what was that noise? Oh. Just the pipes. Old building.", mood: 'flustered' },
-  { text: "You're still here? I mean... I don't mind. Whatever.", mood: 'indifferent' },
-  { text: "Okay fine, that was actually funny.", mood: 'warm' },
-  { text: "Don't get used to this. I'm only being nice because you brought coffee.", mood: 'smug' },
-]
-
-let mockIndex = 0
-
-const chatLog = document.getElementById('chat-log')
-const chatInput = document.getElementById('chat-input')
-
-function appendChatMsg(sender, text, mood) {
-  const div = document.createElement('div')
-  div.className = `chat-msg ${sender === 'You' ? 'user' : 'anna'}`
-  const moodTag = mood ? `<span class="mood-tag">[${mood}]</span>` : ''
-  div.innerHTML = `<span class="sender">${sender}:</span> ${text}${moodTag}`
-  chatLog.appendChild(div)
-  chatLog.scrollTop = chatLog.scrollHeight
-}
-
-function sendChat() {
+async function sendChat() {
   const text = chatInput.value.trim()
-  if (!text) return
+  if (!text || !authToken) return
   chatInput.value = ''
+  chatInput.disabled = true
 
   appendChatMsg('You', text)
+  chatMessages.push({ role: 'user', content: text })
 
-  const response = mockResponses[mockIndex % mockResponses.length]
-  mockIndex++
+  try {
+    const res = await fetch(`${API_BASE}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 350,
+        system: buildSystemPrompt(),
+        messages: chatMessages.slice(-50),
+      }),
+    })
 
-  setTimeout(() => {
-    appendChatMsg('Anna', response.text, response.mood)
-
-    if (response.mood && moodTable[response.mood]) {
-      setMood(response.mood)
+    if (!res.ok) {
+      appendChatMsg('System', `Error ${res.status}`)
+      if (res.status === 401) handleSessionExpired()
+      chatInput.disabled = false
+      return
     }
 
-    if (currentVRM) speak(response.text)
-  }, 300 + Math.random() * 700)
+    const data = await res.json()
+    const rawContent = typeof data.content === 'string'
+      ? data.content
+      : Array.isArray(data.content)
+        ? data.content.map(b => b.text || '').join('')
+        : JSON.stringify(data)
+
+    let replyText = rawContent
+    let mood = null
+    let affectionDelta = 0
+    let emoji = ''
+    let memory = ''
+
+    const metaMatch = rawContent.match(/META:\s*(\{.*\})\s*$/s)
+    if (metaMatch) {
+      replyText = rawContent.slice(0, metaMatch.index).trim()
+      try {
+        const meta = JSON.parse(metaMatch[1])
+        mood = meta.mood || null
+        affectionDelta = meta.affDelta || 0
+        emoji = meta.emoji || ''
+        memory = meta.memory || ''
+      } catch { /* malformed META, keep replyText as-is */ }
+    } else {
+      try {
+        const parsed = JSON.parse(rawContent)
+        replyText = parsed.text || rawContent
+        mood = parsed.mood || null
+        affectionDelta = parsed.affection_delta || parsed.affDelta || 0
+      } catch { /* not JSON either, use raw text */ }
+    }
+
+    chatMessages.push({ role: 'assistant', content: rawContent })
+    appendChatMsg('Anna', replyText, mood)
+
+    if (mood && moodTable[mood]) {
+      setMood(mood)
+      playerState.mood = mood
+    }
+    if (emoji) playerState.moodEmoji = emoji
+
+    playerState.affection = Math.max(0, Math.min(100, (playerState.affection || 0) + affectionDelta))
+
+    if (memory && playerState.memories.length < 12) {
+      playerState.memories.push(memory)
+    } else if (memory) {
+      playerState.memories.shift()
+      playerState.memories.push(memory)
+    }
+
+    if (replyText && currentVRM) speak(replyText)
+
+    saveChatHistory()
+    await saveState()
+
+  } catch (e) {
+    appendChatMsg('System', `Error: ${e.message}`)
+  }
+  chatInput.disabled = false
+  chatInput.focus()
 }
 
 document.getElementById('chat-send').addEventListener('click', sendChat)
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendChat()
+})
+
+document.getElementById('login-btn').addEventListener('click', async () => {
+  const user = document.getElementById('login-user').value.trim()
+  const pass = document.getElementById('login-pass').value
+  if (!user || !pass) return
+  loginStatus.textContent = 'Logging in…'
+  try {
+    const res = await fetch(`${API_BASE}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass }),
+    })
+    if (!res.ok) {
+      loginStatus.textContent = `Login failed: ${res.status}`
+      return
+    }
+    const data = await res.json()
+    await onLoginSuccess(data.token, data.userId, data.username)
+  } catch (e) {
+    loginStatus.textContent = `Error: ${e.message}`
+  }
 })
 
 window.addEventListener('resize', () => {
@@ -505,3 +793,23 @@ animate()
 fetch(defaultURL, { method: 'HEAD' }).then((res) => {
   if (res.ok) loadVRM(defaultURL)
 }).catch(() => {})
+
+// Auto-login if saved token exists
+if (authToken && currentUserId) {
+  loginForm.style.display = 'none'
+  loginStatus.textContent = ''
+  loadState().then(() => {
+    chatInputRow.style.display = 'flex'
+    playerState.sessionCount = (playerState.sessionCount || 0) + 1
+    loadChatHistory()
+    if (chatMessages.length > 0) {
+      replayChatLog()
+      appendChatMsg('System', `Welcome back. (session ${playerState.sessionCount})`)
+    } else {
+      appendChatMsg('System', 'Connected. Say hi to Anna.')
+    }
+    saveState()
+  }).catch(() => {
+    handleSessionExpired()
+  })
+}
