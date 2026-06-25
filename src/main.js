@@ -224,6 +224,26 @@ function updateMood(vrm, delta) {
 
 window.setMood = setMood
 
+window.resetAnna = async function () {
+  if (authToken && currentUserId) {
+    await fetch(`${API_BASE}/api/state/${currentUserId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        player_name: '', affection: 0, mood: 'indifferent', mood_emoji: '',
+        session_count: 0, last_seen: null, memories: [], voice_enabled: true,
+      }),
+    })
+    localStorage.removeItem(`anna_history_${currentUserId}`)
+  }
+  localStorage.removeItem('anna_token')
+  localStorage.removeItem('anna_userId')
+  location.reload()
+}
+
 // --- State Persistence ---
 const loginForm = document.getElementById('login-form')
 const loginStatus = document.getElementById('login-status')
@@ -378,6 +398,7 @@ Relationship stage: "${stage.name}" (affection ${Math.round(playerState.affectio
 - close: quiet warmth she cannot fully suppress, still deflects but the armor has gaps
 
 Never break character. Keep responses 1–3 sentences. Do not over-explain her past unprompted.
+Never use asterisks, markdown, or action text like *sighs* or *looks away*. Just speak naturally.
 
 After your reply, new line, exactly:
 META:{"mood":"...","emoji":"...","affDelta":N,"memory":"..."}
