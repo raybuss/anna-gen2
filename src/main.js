@@ -104,6 +104,8 @@ const frequencyData = new Uint8Array(analyser.frequencyBinCount)
 let isSpeaking = false
 let useAnalyser = false
 let mouthValue = 0
+const vowelCurrent = { aa: 0, ih: 0, ou: 0 }
+const VOWELS = ['aa', 'ih', 'ou', 'ee', 'oh']
 
 function browserTTS(text) {
   window.speechSynthesis.cancel()
@@ -143,31 +145,85 @@ async function speak(text) {
 
 function getSpeechAmplitude(elapsed) {
   if (!isSpeaking) return 0
-
   if (useAnalyser) {
     analyser.getByteFrequencyData(frequencyData)
     let sum = 0
-    for (let i = 0; i < 8; i++) sum += frequencyData[i]
-    return sum / 8 / 255
+    for (let i = 0; i < 16; i++) sum += frequencyData[i]
+    return Math.min(1, sum / 16 / 180)
   }
-
-  // Simulated speech-like amplitude for SpeechSynthesis stub
-  const t = elapsed
-  const wave = Math.sin(t * 14.5) * 0.35
-    + Math.sin(t * 22.7) * 0.25
-    + Math.sin(t * 8.3) * 0.4
+  const wave = Math.sin(elapsed * 14.5) * 0.35
+    + Math.sin(elapsed * 22.7) * 0.25
+    + Math.sin(elapsed * 8.3) * 0.4
   return Math.max(0, Math.min(1, wave + 0.35))
 }
 
 function updateLipSync(vrm, elapsed, delta) {
-  const target = getSpeechAmplitude(elapsed)
-  const smoothing = isSpeaking ? 20 : 8
-  mouthValue += (target - mouthValue) * Math.min(1, delta * smoothing)
+  if (!vrm.expressionManager) return
+
+  const amplitude = getSpeechAmplitude(elapsed)
+  mouthValue += (amplitude - mouthValue) * Math.min(1, delta * (isSpeaking ? 25 : 10))
   if (Math.abs(mouthValue) < 0.001) mouthValue = 0
-  if (vrm.expressionManager) vrm.expressionManager.setValue('aa', mouthValue)
+
+  if (mouthValue < 0.015) {
+    const close = Math.min(1, delta * 12)
+    for (const v of VOWELS) {
+      if (vowelCurrent[v]) { vowelCurrent[v] *= (1 - close); vrm.expressionManager.setValue(v, vowelCurrent[v]) }
+    }
+    return
+  }
+
+  // Derive per-vowel weights from frequency bands when analyser is live,
+  // otherwise cycle at syllable rate (~5 Hz)
+  let aaW, ihW, ouW
+  if (useAnalyser) {
+    analyser.getByteFrequencyData(frequencyData)
+    let lo = 0, mid = 0, hi = 0
+    for (let i = 0; i < 5; i++) lo += frequencyData[i]
+    for (let i = 5; i < 11; i++) mid += frequencyData[i]
+    for (let i = 11; i < 18; i++) hi += frequencyData[i]
+    lo /= 5; mid /= 6; hi /= 7
+    const total = lo + mid + hi + 0.001
+    aaW = lo / total
+    ihW = mid / total
+    ouW = hi / total
+  } else {
+    const phase = (elapsed * 5.2) % 3.0
+    if (phase < 1.0) { aaW = 1 - phase; ihW = phase;       ouW = 0 }
+    else if (phase < 2.0) { const p = phase - 1; aaW = 0; ihW = 1 - p; ouW = p }
+    else { const p = phase - 2; aaW = p; ihW = 0; ouW = 1 - p }
+  }
+
+  const rate = Math.min(1, delta * 28)
+  vowelCurrent.aa += (aaW * mouthValue          - vowelCurrent.aa) * rate
+  vowelCurrent.ih += (ihW * mouthValue * 0.65   - vowelCurrent.ih) * rate
+  vowelCurrent.ou += (ouW * mouthValue * 0.5    - vowelCurrent.ou) * rate
+
+  vrm.expressionManager.setValue('aa', vowelCurrent.aa)
+  vrm.expressionManager.setValue('ih', vowelCurrent.ih)
+  vrm.expressionManager.setValue('ou', vowelCurrent.ou)
+  vrm.expressionManager.setValue('ee', 0)
+  vrm.expressionManager.setValue('oh', 0)
 }
 
 // --- Mood System ---
+
+// Subtle bone offsets per mood — Z-only on arms (proven portable across VRM versions).
+// lua/rua = left/right upper arm Z delta (inside boneZSign so version-neutral).
+// hZ/hY = head tilt/turn, sX = spine lean.
+const moodPoseTable = {
+  irritated:   { luaZ:  0.2,  ruaZ: -0.2,  sX: -0.03, hZ:  0.04 },
+  flustered:   { luaZ:  0.05, ruaZ: -0.05, sX:  0.015, hZ: -0.07, hY:  0.05 },
+  indifferent: { luaZ: -0.08, ruaZ:  0.08, sX: -0.02 },
+  reluctant:   { luaZ:  0.1,  ruaZ: -0.1,  hY:  0.06 },
+  softening:   { luaZ: -0.05, ruaZ:  0.05, sX:  0.01, hZ: -0.03 },
+  annoyed:     { luaZ:  0.25, ruaZ: -0.25, sX: -0.03, hZ:  0.03 },
+  smug:        { hZ:   0.06,  hY:  -0.05,  sX: -0.01 },
+  warm:        { luaZ: -0.12, ruaZ:  0.12, sX:  0.02, hZ: -0.02 },
+  angry:       { luaZ:  0.3,  ruaZ: -0.3,  sX: -0.04, hZ:  0.02 },
+}
+const moodPoseTarget  = { luaZ: 0, ruaZ: 0, hZ: 0, hY: 0, sX: 0 }
+const moodPoseCurrent = { luaZ: 0, ruaZ: 0, hZ: 0, hY: 0, sX: 0 }
+
 const moodTable = {
   irritated:   { angry: 0.3 },
   flustered:   { Surprised: 0.4, happy: 0.15 },
@@ -177,6 +233,7 @@ const moodTable = {
   annoyed:     { angry: 0.5 },
   smug:        { happy: 0.3, angry: 0.1 },
   warm:        { happy: 0.6, relaxed: 0.2 },
+  angry:       { angry: 0.85 },
 }
 
 const moodExpressions = new Set()
@@ -195,7 +252,10 @@ function setMood(moodName) {
   const weights = moodTable[moodName]
   if (!weights) { console.warn(`Unknown mood: ${moodName}`); return }
   for (const [name, w] of Object.entries(weights)) moodTarget[name] = w
-  console.log(`Mood set: ${moodName}`)
+
+  for (const k of Object.keys(moodPoseTarget)) moodPoseTarget[k] = 0
+  const pose = moodPoseTable[moodName]
+  if (pose) Object.assign(moodPoseTarget, pose)
 }
 
 function updateMood(vrm, delta) {
@@ -402,7 +462,7 @@ Never use asterisks, markdown, or action text like *sighs* or *looks away*. Just
 
 After your reply, new line, exactly:
 META:{"mood":"...","emoji":"...","affDelta":N,"memory":"..."}
-mood: irritated|flustered|indifferent|reluctant|softening|annoyed|smug|warm
+mood: irritated|flustered|indifferent|reluctant|softening|annoyed|smug|warm|angry
 affDelta: -3 to +5
 memory: one sentence max 12 words worth keeping, or ""`
 }
@@ -535,23 +595,25 @@ function updateIdleAnimation(vrm, elapsed, delta) {
   const humanoid = vrm.humanoid
   const t = elapsed
 
+  const p = moodPoseCurrent
+
   const spine = humanoid.getNormalizedBoneNode('spine')
-  if (spine) setBoneFromRest('spine', spine, Math.sin(t * 1.2) * 0.025, 0, Math.sin(t * 0.5) * 0.012)
+  if (spine) setBoneFromRest('spine', spine, Math.sin(t * 1.2) * 0.025 + p.sX, 0, Math.sin(t * 0.5) * 0.012)
 
   const chest = humanoid.getNormalizedBoneNode('chest')
-  if (chest) setBoneFromRest('chest', chest, Math.sin(t * 1.2 + 0.5) * 0.018, 0, Math.sin(t * 0.7 + 1.0) * 0.008)
+  if (chest) setBoneFromRest('chest', chest, Math.sin(t * 1.2 + 0.5) * 0.018 + p.sX * 0.5, 0, Math.sin(t * 0.7 + 1.0) * 0.008)
 
   const hips = humanoid.getNormalizedBoneNode('hips')
   if (hips) {
     setBoneFromRest('hips', hips, 0, Math.sin(t * 0.3) * 0.01, Math.sin(t * 0.4) * 0.015)
-    hips.position.x = (restQuaternions.hips ? 0 : 0) + Math.sin(t * 0.4) * 0.01
+    hips.position.x = Math.sin(t * 0.4) * 0.01
   }
 
   const head = humanoid.getNormalizedBoneNode('head')
   if (head) {
     const hx = Math.sin(t * 0.5) * 0.03 + Math.sin(t * 0.19) * 0.015
-    const hy = Math.sin(t * 0.35) * 0.06 + Math.sin(t * 0.13) * 0.03
-    const hz = Math.sin(t * 0.25) * 0.015
+    const hy = Math.sin(t * 0.35) * 0.06 + Math.sin(t * 0.13) * 0.03 + p.hY
+    const hz = Math.sin(t * 0.25) * 0.015 + p.hZ
     setBoneFromRest('head', head, hx, hy, hz)
   }
 
@@ -559,10 +621,10 @@ function updateIdleAnimation(vrm, elapsed, delta) {
   if (neck) setBoneFromRest('neck', neck, Math.sin(t * 0.4 + 1) * 0.01, Math.sin(t * 0.28 + 2) * 0.02, 0)
 
   const leftUpper = humanoid.getNormalizedBoneNode('leftUpperArm')
-  if (leftUpper) setBoneFromRest('leftUpperArm', leftUpper, Math.sin(t * 0.45 + 1) * 0.02, 0, (1.2 + Math.sin(t * 0.6) * 0.03) * boneZSign)
+  if (leftUpper) setBoneFromRest('leftUpperArm', leftUpper, Math.sin(t * 0.45 + 1) * 0.02, 0, (1.2 + Math.sin(t * 0.6) * 0.03 + p.luaZ) * boneZSign)
 
   const rightUpper = humanoid.getNormalizedBoneNode('rightUpperArm')
-  if (rightUpper) setBoneFromRest('rightUpperArm', rightUpper, Math.sin(t * 0.4 + 2) * 0.02, 0, (-1.2 + Math.sin(t * 0.55 + 0.5) * 0.03) * boneZSign)
+  if (rightUpper) setBoneFromRest('rightUpperArm', rightUpper, Math.sin(t * 0.4 + 2) * 0.02, 0, (-1.2 + Math.sin(t * 0.55 + 0.5) * 0.03 + p.ruaZ) * boneZSign)
 
   const leftLower = humanoid.getNormalizedBoneNode('leftLowerArm')
   if (leftLower) setBoneFromRest('leftLowerArm', leftLower, 0, 0, (0.15 + Math.sin(t * 0.7 + 0.3) * 0.02) * boneZSign)
@@ -575,6 +637,11 @@ function updateIdleAnimation(vrm, elapsed, delta) {
 
   const rightShoulder = humanoid.getNormalizedBoneNode('rightShoulder')
   if (rightShoulder) setBoneFromRest('rightShoulder', rightShoulder, 0, 0, Math.sin(t * 0.5 + 0.8) * -0.008 * boneZSign)
+
+  // Interpolate mood pose offsets
+  const poseRate = Math.min(1, delta * 1.8)
+  for (const k of Object.keys(moodPoseCurrent))
+    moodPoseCurrent[k] += (moodPoseTarget[k] - moodPoseCurrent[k]) * poseRate
 
   updateBlink(vrm, elapsed)
   updateLipSync(vrm, elapsed, delta)
