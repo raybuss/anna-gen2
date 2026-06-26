@@ -147,25 +147,26 @@ function getSpeechAmplitude(elapsed) {
   if (!isSpeaking) return 0
   if (useAnalyser) {
     analyser.getByteFrequencyData(frequencyData)
-    let sum = 0
-    for (let i = 0; i < 16; i++) sum += frequencyData[i]
-    return Math.min(1, sum / 16 / 180)
+    let peak = 0
+    for (let i = 1; i < 20; i++) if (frequencyData[i] > peak) peak = frequencyData[i]
+    return Math.min(1, peak / 210)
   }
-  const wave = Math.sin(elapsed * 14.5) * 0.35
-    + Math.sin(elapsed * 22.7) * 0.25
-    + Math.sin(elapsed * 8.3) * 0.4
-  return Math.max(0, Math.min(1, wave + 0.35))
+  // Product of sines — naturally hits zero at each zero-crossing, no DC offset
+  return Math.max(0,
+    Math.sin(elapsed * 12.6) * Math.abs(Math.sin(elapsed * 3.8))
+  )
 }
 
 function updateLipSync(vrm, elapsed, delta) {
   if (!vrm.expressionManager) return
 
   const amplitude = getSpeechAmplitude(elapsed)
-  mouthValue += (amplitude - mouthValue) * Math.min(1, delta * (isSpeaking ? 25 : 10))
-  if (Math.abs(mouthValue) < 0.001) mouthValue = 0
+  const trackRate = isSpeaking ? 22 : 30  // close faster than we open
+  mouthValue += (amplitude - mouthValue) * Math.min(1, delta * trackRate)
+  if (mouthValue < 0.002) mouthValue = 0
 
-  if (mouthValue < 0.015) {
-    const close = Math.min(1, delta * 12)
+  if (mouthValue < 0.03) {
+    const close = Math.min(1, delta * 18)
     for (const v of VOWELS) {
       if (vowelCurrent[v]) { vowelCurrent[v] *= (1 - close); vrm.expressionManager.setValue(v, vowelCurrent[v]) }
     }
@@ -232,7 +233,7 @@ const moodTable = {
   softening:   { happy: 0.25, relaxed: 0.15 },
   annoyed:     { angry: 0.5 },
   smug:        { happy: 0.3, angry: 0.1 },
-  warm:        { happy: 0.6, relaxed: 0.2 },
+  warm:        { happy: 0.6 },
   angry:       { angry: 0.85 },
 }
 
