@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anna-gen2
+  namespace: anna
+  labels:
+    app: anna-gen2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: anna-gen2
+  template:
+    metadata:
+      labels:
+        app: anna-gen2
+    spec:
+      containers:
+        - name: anna-gen2
+          image: localhost:32000/anna-gen2:v1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          env:
+            # Update this to the in-cluster URL of the anna backend service.
+            # The backend must expose /api/login, /api/chat, /api/speech, /api/state/:id
+            # at this base URL (no trailing slash).
+            - name: BACKEND_URL
+              value: "http://anna-backend.anna.svc.cluster.local:3000"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
