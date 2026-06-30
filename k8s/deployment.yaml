@@ -26,7 +26,7 @@ spec:
             # The backend must expose /api/login, /api/chat, /api/speech, /api/state/:id
             # at this base URL (no trailing slash).
             - name: BACKEND_URL
-              value: "http://anna-backend.anna.svc.cluster.local:3000"
+              value: "http://anna.anna.svc.cluster.local"
           readinessProbe:
             httpGet:
               path: /
