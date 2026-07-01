@@ -465,7 +465,11 @@ After your reply, new line, exactly:
 META:{"mood":"...","emoji":"...","affDelta":N,"memory":"..."}
 mood: irritated|flustered|indifferent|reluctant|softening|annoyed|smug|warm|angry
 affDelta: -3 to +5
-memory: one sentence max 12 words worth keeping, or ""`
+memory: one sentence max 12 words worth keeping, or ""
+
+Example of correct output format:
+Hmph. Didn't expect visitors today.
+META:{"mood":"irritated","emoji":"😒","affDelta":-1,"memory":"A neighbor stopped by unannounced"}`
 }
 
 async function onLoginSuccess(token, userId, username) {
@@ -787,7 +791,7 @@ async function sendChat() {
     let emoji = ''
     let memory = ''
 
-    const metaMatch = rawContent.match(/META:\s*(\{.*\})\s*$/s)
+    const metaMatch = rawContent.match(/META:\s*(\{.*\})/s)
     if (metaMatch) {
       replyText = rawContent.slice(0, metaMatch.index).trim()
       try {
