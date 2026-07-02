@@ -747,6 +747,13 @@ for (const mood of Object.keys(moodTable)) {
 
 // --- Chat System ---
 
+// Only the quoted spoken line(s) should go to the TTS API — narration is
+// silent text the player reads, so this also cuts ElevenLabs usage/cost.
+function extractSpokenLine(text) {
+  const matches = [...text.matchAll(/["“]([^"”]+)["”]/g)].map(m => m[1])
+  return matches.length ? matches.join(' ') : text
+}
+
 function parseAnnaReply(data) {
   const rawContent = typeof data.content === 'string'
     ? data.content
@@ -842,7 +849,8 @@ async function sendChat() {
       playerState.memories.push(memory)
     }
 
-    if (replyText && currentVRM) speak(replyText)
+    const spokenLine = extractSpokenLine(replyText)
+    if (spokenLine && currentVRM) speak(spokenLine)
 
     saveChatHistory()
     await saveState()
