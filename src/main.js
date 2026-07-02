@@ -747,6 +747,41 @@ for (const mood of Object.keys(moodTable)) {
 
 // --- Chat System ---
 
+function parseAnnaReply(data) {
+  const rawContent = typeof data.content === 'string'
+    ? data.content
+    : Array.isArray(data.content)
+      ? data.content.map(b => b.text || '').join('')
+      : JSON.stringify(data)
+
+  let replyText = rawContent
+  let mood = null
+  let affectionDelta = 0
+  let emoji = ''
+  let memory = ''
+
+  const metaMatch = rawContent.match(/META:\s*(\{.*\})/s)
+  if (metaMatch) {
+    replyText = rawContent.slice(0, metaMatch.index).trim()
+    try {
+      const meta = JSON.parse(metaMatch[1])
+      mood = meta.mood || null
+      affectionDelta = meta.affDelta || 0
+      emoji = meta.emoji || ''
+      memory = meta.memory || ''
+    } catch { /* malformed META, keep replyText as-is */ }
+  } else {
+    try {
+      const parsed = JSON.parse(rawContent)
+      replyText = parsed.text || rawContent
+      mood = parsed.mood || null
+      affectionDelta = parsed.affection_delta || parsed.affDelta || 0
+    } catch { /* not JSON either, use raw text */ }
+  }
+
+  return { rawContent, replyText, mood, affectionDelta, emoji, memory }
+}
+
 async function sendChat() {
   const text = chatInput.value.trim()
   if (!text || !authToken) return
@@ -757,58 +792,37 @@ async function sendChat() {
   chatMessages.push({ role: 'user', content: text })
 
   try {
-    const res = await fetch(`${API_BASE}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 700,
-        system: buildSystemPrompt(),
-        messages: chatMessages.slice(-50),
-      }),
-    })
+    let parsed = null
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 700,
+          system: buildSystemPrompt(),
+          messages: chatMessages.slice(-50),
+        }),
+      })
 
-    if (!res.ok) {
-      appendChatMsg('System', `Error ${res.status}`)
-      if (res.status === 401) handleSessionExpired()
-      chatInput.disabled = false
-      return
+      if (!res.ok) {
+        appendChatMsg('System', `Error ${res.status}`)
+        if (res.status === 401) handleSessionExpired()
+        chatInput.disabled = false
+        return
+      }
+
+      const data = await res.json()
+      parsed = parseAnnaReply(data)
+      if (parsed.replyText) break
+      // Empty reply (Magnum sometimes emits only the META block) — retry once
+      // silently before giving up, so the user never sees a blank line.
     }
 
-    const data = await res.json()
-    const rawContent = typeof data.content === 'string'
-      ? data.content
-      : Array.isArray(data.content)
-        ? data.content.map(b => b.text || '').join('')
-        : JSON.stringify(data)
-
-    let replyText = rawContent
-    let mood = null
-    let affectionDelta = 0
-    let emoji = ''
-    let memory = ''
-
-    const metaMatch = rawContent.match(/META:\s*(\{.*\})/s)
-    if (metaMatch) {
-      replyText = rawContent.slice(0, metaMatch.index).trim()
-      try {
-        const meta = JSON.parse(metaMatch[1])
-        mood = meta.mood || null
-        affectionDelta = meta.affDelta || 0
-        emoji = meta.emoji || ''
-        memory = meta.memory || ''
-      } catch { /* malformed META, keep replyText as-is */ }
-    } else {
-      try {
-        const parsed = JSON.parse(rawContent)
-        replyText = parsed.text || rawContent
-        mood = parsed.mood || null
-        affectionDelta = parsed.affection_delta || parsed.affDelta || 0
-      } catch { /* not JSON either, use raw text */ }
-    }
+    const { rawContent, replyText, mood, affectionDelta, emoji, memory } = parsed
 
     chatMessages.push({ role: 'assistant', content: rawContent })
     appendChatMsg('Anna', replyText, mood)
