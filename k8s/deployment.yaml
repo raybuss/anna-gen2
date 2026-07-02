@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: anna-gen2
-          image: localhost:32000/anna-gen2:v1
+          image: localhost:32000/anna-gen2:v2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
